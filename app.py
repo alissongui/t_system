@@ -259,11 +259,20 @@ if upl:
                         "Experimentos (n)": specs['n'],
                         "Colunas (2 níveis)": specs['cols2'],
                         "Colunas (3 níveis)": specs['cols3'],
-                        "Eficiência vs. fatorial": f"{eficiencia:.1f}%"
+                        "Economia de corridas (%)": f"{eficiencia:.1f}%"
                     })
 
                 df_recomendacoes = pd.DataFrame(recomendacoes)
                 st.dataframe(df_recomendacoes, use_container_width=True)
+                #st.markdown("### 📐 Fórmula da economia de corridas")
+                st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
+                st.latex(r"\text{Economia (\%)} = \Bigg( 1 - \frac{n_{OA}}{n_{fatorial}} \Bigg) \times 100")
+                
+                st.markdown("""
+                - $n_{OA}$: número de experimentos da matriz ortogonal selecionada  
+                - $n_{fatorial}$: número total de experimentos no fatorial completo (produto dos níveis de todos os fatores)
+                """)
+
 
                 # Recomendação principal
                 matriz_recomendada = matrizes_candidatas[0][0]
