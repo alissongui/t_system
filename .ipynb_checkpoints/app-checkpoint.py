@@ -45,11 +45,30 @@ def built_in_catalog():
 
 def oa_from_name(name: str) -> np.ndarray:
     """Retorna OA com codificação 0-based (0,1) ou (0,1,2).
-    Prioriza pyDOE3; caso contrário, usa fallbacks internos (L4, L8, L9, L16, L18, L27).
+    Prioriza pyDOE3; se não encontrar, usa fallbacks internos (L4, L8, L9, L16, L18, L27).
     """
-    if HAS_PYDOE3:
-        return np.asarray(get_orthogonal_array(name), dtype=int)
+    # Mapeamentos de alias -> nomes do pyDOE3
+    name_map_pyDOE3 = {
+        "L18(2^1 3^7)": "L18(6^1 3^6)",   # Taguchi L18 padrão; pyDOE3 usa essa variante isomorfa
+        "L27(3^13)"   : "L27(2^1 3^12)",  # Em pyDOE3 a L27 vem com um fator 2 níveis "dummy"
+        # mapeie outros, se quiser:
+        # "L16(2^15)" : "L16(2^15)",
+        # "L9(3^4)"   : "L9(3^4)",
+        # "L12(2^11)" : "L12(2^11)",
+        # "L8(2^7)"   : "L8(2^7)",
+        # "L4(2^3)"   : "L4(2^3)",
+    }
 
+    # 1) Tenta pyDOE3 com nome mapeado (se disponível)
+    if HAS_PYDOE3:
+        try:
+            lookup = name_map_pyDOE3.get(name, name)
+            return np.asarray(get_orthogonal_array(lookup), dtype=int)
+        except Exception:
+            # Continua para o fallback interno
+            pass
+
+    # 2) Fallbacks internos (0-based)
     if name == "L4(2^3)":
         return np.array([[0,0,0],[0,1,1],[1,0,1],[1,1,0]], dtype=int)
 
@@ -143,19 +162,11 @@ def oa_from_name(name: str) -> np.ndarray:
             [2,3,1,2,1,2,3,3,1,2,2,3,1],
             [2,3,1,2,2,3,1,1,2,3,3,1,2],
             [2,3,1,2,3,1,2,2,3,1,1,2,3],
-            [3,1,3,2,1,3,2,1,3,2,1,3,2],
-            [3,1,3,2,2,1,3,2,1,3,2,1,3],
-            [3,1,3,2,3,2,1,3,2,1,3,2,1],
-            [3,2,1,3,1,3,2,2,1,3,3,2,1],
-            [3,2,1,3,2,1,3,3,2,1,1,3,2],
-            [3,2,1,3,3,2,1,1,3,2,2,1,3],
-            [3,3,2,1,1,3,2,3,2,1,2,1,3],
-            [3,3,2,1,2,1,3,1,3,2,3,2,1],
-            [3,3,2,1,3,2,1,2,1,3,1,3,2],
         ], dtype=int)
         return arr27 - 1
 
-    raise RuntimeError(f"OA '{name}' não disponível sem pyDOE3.")
+    raise RuntimeError(f"OA '{name}' não disponível.")
+
 
 def full_factorial_runs(levels_by_factor: list[int]) -> int:
     runs = 1
