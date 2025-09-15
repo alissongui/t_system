@@ -175,6 +175,7 @@ def oa_from_name(name: str) -> np.ndarray:
 
     raise RuntimeError(f"OA '{name}' não disponível.")
 
+
 def full_factorial_runs(levels_by_factor: list[int]) -> int:
     runs = 1
     for n in levels_by_factor:
@@ -202,7 +203,7 @@ if upl:
         else:
             # Preview
             st.success("✅ Arquivo carregado com sucesso!")
-            st.dataframe(df_fatores, use_container_width=True)
+            st.dataframe(df_fatores, use_container_width=True, hide_index=True)
 
             # -----------------------------------------
             # Análise automática dos fatores
@@ -285,7 +286,7 @@ if upl:
                     })
 
                 df_recomendacoes = pd.DataFrame(recomendacoes)
-                st.dataframe(df_recomendacoes, use_container_width=True)
+                st.dataframe(df_recomendacoes, use_container_width=True, hide_index=True)
                 st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
                 st.latex(r"\text{Economia (\%)} = \Bigg( 1 - \frac{n_{OA}}{n_{fatorial}} \Bigg) \times 100")
 
@@ -351,9 +352,9 @@ if upl:
 
                             st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
 
-                            # Exibir a matriz experimental gerada
-                            st.subheader("📊 Matriz Experimental Gerada")
-                            st.dataframe(df_niveis, use_container_width=True, hide_index=True)
+                            # (Removido) NÃO exibir a tabela aqui para evitar duplicidade
+                            # st.subheader("📊 Matriz Experimental Gerada")
+                            # st.dataframe(df_niveis, use_container_width=True, hide_index=True)
 
                             # Botão de download CSV
                             @st.cache_data
@@ -411,6 +412,15 @@ if st.session_state.get('df_experimentos') is not None:
     if sn_tipo == "Nominal-the-best":
         nominal_target = st.number_input("Alvo (m)", value=0.0, help="Alvo m para Nominal-the-best")
 
+    # --- Fórmula em LaTeX conforme seleção ---
+    sn_formulas = {
+        "Larger-the-better":  r"\mathrm{S/N} = -10 \log_{10}\!\left(\tfrac{1}{n}\sum_{i=1}^{n}\tfrac{1}{y_i^{2}}\right)",
+        "Smaller-the-better": r"\mathrm{S/N} = -10 \log_{10}\!\left(\tfrac{1}{n}\sum_{i=1}^{n} y_i^{2}\right)",
+        "Nominal-the-best":   r"\mathrm{S/N} = 10 \log_{10}\!\left(\tfrac{m^{2}}{s^{2}}\right)\quad(\,m=\bar{y}\text{ se alvo não informado})"
+    }
+    st.markdown("**Fórmula S/N selecionada:**")
+    st.latex(sn_formulas[sn_tipo])
+    
     result_upl = st.file_uploader(
         "**Carregar arquivo de resultados**",
         type=["xlsx", "csv"],
@@ -445,18 +455,47 @@ if st.session_state.get('df_experimentos') is not None:
                 if len(num_cols) == 0:
                     st.error("❌ Nenhuma coluna numérica de resposta encontrada. Inclua colunas de réplicas.")
                 else:
+                    # --- Validação: número de experimentos e índices 1..n ---
+                    df_plan = st.session_state['df_experimentos']
+                    n_exp_plan = len(df_plan)  # total de linhas da matriz experimental
+                    n_exp_res  = df_res['Experimento'].nunique()
+
+                    # Checa duplicatas explícitas na coluna Experimento
+                    dups = df_res['Experimento'][df_res['Experimento'].duplicated()].unique()
+                    if len(dups) > 0:
+                        st.error(f"❌ Há experimentos repetidos no arquivo de resultados: {sorted(dups)}")
+                        st.stop()
+
+                    # Checa quantidade
+                    if n_exp_res != n_exp_plan:
+                        st.error(
+                            f"❌ O arquivo de resultados possui {n_exp_res} experimentos, "
+                            f"mas a matriz experimental tem {n_exp_plan}."
+                        )
+                        st.stop()
+
+                    # Checa se todos os índices 1..n estão presentes
+                    esperados = set(range(1, n_exp_plan + 1))
+                    presentes = set(df_res['Experimento'])
+                    faltando  = sorted(esperados - presentes)
+                    if faltando:
+                        st.error(f"❌ Estão faltando os experimentos: {faltando}")
+                        st.stop()
+
+                    # Se passou por todas as checagens, prossegue
+                    st.success("✅ Número de experimentos confere com a matriz experimental!")
+
+                    # Agora sim: exibe e segue
                     st.success("✅ Arquivo de resultados carregado com sucesso!")
                     st.dataframe(df_res, use_container_width=True, hide_index=True)
 
                     # Junta com o plano experimental (para saber fatores/níveis de cada Experimento)
-                    df_plan = st.session_state['df_experimentos']
                     df_join = pd.merge(df_plan, df_res, on='Experimento', how='left')
 
                     # Calcula estatísticas por corrida
                     rep_values = df_join[num_cols].to_numpy(dtype=float)
                     mean_y = np.nanmean(rep_values, axis=1)
                     std_y = np.nanstd(rep_values, axis=1, ddof=1)
-                    m = rep_values.shape[1]
 
                     # Razão S/N por corrida (padrões Taguchi)
                     def sn_ratio(vals: np.ndarray, tipo: str) -> float:
@@ -485,130 +524,6 @@ if st.session_state.get('df_experimentos') is not None:
                     df_join["Média"] = mean_y
                     df_join["Desvio-Padrão"] = std_y
                     df_join["S/N"] = sn_vals
-
-                    # ==============================
-                    # Efeitos médios por fator (na MÉDIA e no S/N)
-                    # ==============================
-                    fatores_cols = [c for c in df_plan.columns if c not in {"Experimento"}]
-
-                    # Efeitos (MÉDIA)
-                    efeitos_media = []
-                    for f in fatores_cols:
-                        grp = df_join.groupby(f, dropna=False)["Média"].mean()
-                        # garante ordem pela aparição no plano (níveis categóricos)
-                        ordem_niveis = list(df_plan[f].astype(str).unique())
-                        linha = {"Fator": f}
-                        for lvl in ordem_niveis:
-                            linha[str(lvl)] = grp.reindex(ordem_niveis).get(lvl, np.nan)
-                        arr = grp.reindex(ordem_niveis).to_numpy(dtype=float)
-                        linha["Delta"] = np.nanmax(arr) - np.nanmin(arr)
-                        efeitos_media.append(linha)
-                    df_efeitos_media = pd.DataFrame(efeitos_media)
-                    df_efeitos_media["Ranking (Δ)"] = (-df_efeitos_media["Delta"]).rank(method="min").astype(int)
-                    df_efeitos_media.sort_values("Ranking (Δ)", inplace=True)
-
-                    # Efeitos (S/N)
-                    efeitos_sn = []
-                    for f in fatores_cols:
-                        grp = df_join.groupby(f, dropna=False)["S/N"].mean()
-                        ordem_niveis = list(df_plan[f].astype(str).unique())
-                        linha = {"Fator": f}
-                        for lvl in ordem_niveis:
-                            linha[str(lvl)] = grp.reindex(ordem_niveis).get(lvl, np.nan)
-                        arr = grp.reindex(ordem_niveis).to_numpy(dtype=float)
-                        linha["Delta"] = np.nanmax(arr) - np.nanmin(arr)
-                        efeitos_sn.append(linha)
-                    df_efeitos_sn = pd.DataFrame(efeitos_sn)
-                    df_efeitos_sn["Ranking (Δ)"] = (-df_efeitos_sn["Delta"]).rank(method="min").astype(int)
-                    df_efeitos_sn.sort_values("Ranking (Δ)", inplace=True)
-
-                    st.subheader("📈 Efeitos Médios dos Fatores — na **Média**")
-                    st.dataframe(df_efeitos_media, use_container_width=True, hide_index=True)
-                    st.subheader("🔊 Efeitos Médios dos Fatores — no **S/N**")
-                    st.dataframe(df_efeitos_sn, use_container_width=True, hide_index=True)
-
-                    # Downloads das tabelas
-                    @st.cache_data
-                    def to_csv_bytes(df):
-                        return df.to_csv(index=False, sep=';').encode('utf-8')
-
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.download_button(
-                            "📥 Baixar Efeitos (MÉDIA)",
-                            data=to_csv_bytes(df_efeitos_media),
-                            file_name="efeitos_media.csv",
-                            mime="text/csv",
-                        )
-                    with c2:
-                        st.download_button(
-                            "📥 Baixar Efeitos (S/N)",
-                            data=to_csv_bytes(df_efeitos_sn),
-                            file_name="efeitos_sn.csv",
-                            mime="text/csv",
-                        )
-
-                    # ==============================
-                    # Gráficos: efeitos principais (MÉDIA e S/N)
-                    # ==============================
-                    st.subheader("📊 Gráficos de Efeitos Principais")
-                    st.caption("Linha da média global em vermelho. Eixo ajustado aos níveis observados.")
-
-                    # Função para plotar um fator (uma métrica)
-                    def plot_main_effect(df_base: pd.DataFrame, fator: str, col_metric: str, titulo: str):
-                        ordem = list(df_plan[fator].astype(str).unique())
-                        grp = df_base.groupby(fator, dropna=False)[col_metric].mean().reindex(ordem)
-                        x = np.arange(len(ordem))
-                        y = grp.values
-                        media_global = df_base[col_metric].mean()
-
-                        fig, ax = plt.subplots()
-                        ax.plot(x, y, marker='o')
-                        ax.axhline(media_global, linestyle='--', color='red', linewidth=1.5, label='Média global')
-                        ax.set_xticks(x)
-                        ax.set_xticklabels(ordem)
-                        ax.set_xlabel(fator)
-                        ax.set_ylabel(col_metric)
-                        ax.set_title(titulo)
-                        ax.legend()
-                        st.pyplot(fig)
-
-                    # Gráficos individuais (Média)
-                    st.markdown("**Efeitos na MÉDIA**")
-                    for f in fatores_cols:
-                        plot_main_effect(df_join, f, "Média", f"Efeito principal na Média — {f}")
-
-                    # Gráficos individuais (S/N)
-                    st.markdown("**Efeitos no S/N**")
-                    for f in fatores_cols:
-                        plot_main_effect(df_join, f, "S/N", f"Efeito principal no S/N — {f}")
-
-                    # Grid com todos os gráficos da MÉDIA (opcional)
-                    st.subheader("🖼️ Grade de Gráficos — MÉDIA")
-                    nF = len(fatores_cols)
-                    ncols = 3 if nF >= 3 else nF
-                    nrows = math.ceil(nF / ncols) if ncols > 0 else 1
-                    fig_m, axes_m = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4*ncols, 3*nrows))
-                    if nF == 1:
-                        axes = np.array([axes_m])
-                    else:
-                        axes = axes_m.flatten()
-                    media_global_all = df_join["Média"].mean()
-                    for i, f in enumerate(fatores_cols):
-                        ordem = list(df_plan[f].astype(str).unique())
-                        grp = df_join.groupby(f, dropna=False)["Média"].mean().reindex(ordem)
-                        x = np.arange(len(ordem))
-                        y = grp.values
-                        ax = axes[i]
-                        ax.plot(x, y, marker='o')
-                        ax.axhline(media_global_all, linestyle='--', color='red', linewidth=1.0)
-                        ax.set_xticks(x)
-                        ax.set_xticklabels(ordem, rotation=0)
-                        ax.set_title(f)
-                    # esconde eixos vazios
-                    for j in range(i+1, len(axes)):
-                        axes[j].axis('off')
-                    st.pyplot(fig_m)
 
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
