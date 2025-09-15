@@ -274,7 +274,7 @@ if st.session_state.get('df_experimentos') is not None:
     st.subheader("📊 Matriz Experimental Gerada")
     st.dataframe(df_plan, use_container_width=True, hide_index=True)
 
-    st.subheader("📤 Upload de Resultados Experimentais")
+    st.subheader("📥 Download de Resultados Experimentais")
     var_label = st.session_state.get('var_label', 'Variável de Interesse')
 
     # Tipo de razão S/N
@@ -289,9 +289,9 @@ if st.session_state.get('df_experimentos') is not None:
 
     # Fórmula em LaTeX
     sn_formulas = {
-        "Larger-the-better":  r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
-        "Smaller-the-better": r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
-        "Nominal-the-best":   r"S/N = 10 \log_{10} \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
+        "Larger-the-better":  r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
+        "Smaller-the-better": r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
+        "Nominal-the-best":   r"S/N = 10 \ln \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
     }
     st.markdown("**Fórmula S/N selecionada:**")
     st.latex(sn_formulas[sn_tipo])
@@ -353,15 +353,15 @@ if st.session_state.get('df_experimentos') is not None:
                     # Funções S/N (locais)
                     def sn_larger_better(vals):
                         vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log10(np.mean(1.0/(vals**2)))
+                        return -10.0 * np.log(np.mean(1.0/(vals**2)))
                     def sn_smaller_better(vals):
                         vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log10(np.mean(vals**2))
+                        return -10.0 * np.log(np.mean(vals**2))
                     def sn_nominal_best(vals, target):
                         vals = np.asarray(vals, dtype=float)
                         if vals.size < 2:
                             return np.nan
-                        return 10.0 * np.log10((target**2) / np.var(vals, ddof=1))
+                        return 10.0 * np.log((target**2) / np.var(vals, ddof=1))
                     def compute_snr(vals, tipo, target=None):
                         if tipo == "Larger-the-better":
                             return sn_larger_better(vals)
@@ -393,9 +393,155 @@ if st.session_state.get('df_experimentos') is not None:
                         f"S/N das réplicas ({var_label}) [dB]": sn_reps,
                     })
 
-                    st.markdown("### Resultado por ensaio")
+                    st.markdown("### 📊 Resultado por ensaio")
                     st.dataframe(sn_table, use_container_width=True, hide_index=True)
-                    st.caption("S/N das réplicas segue Taguchi (usa valores individuais). 'S/N da média' aplica a fórmula à média (1 valor).")
+                    st.caption(
+                        "🔹 **S/N das réplicas**: calculado a partir de todas as medições de cada ensaio, "
+                        "seguindo a definição padrão de Taguchi (considera a variação entre as réplicas).  \n"
+                        "🔹 **S/N da média**: calculado aplicando a fórmula apenas sobre a média de cada ensaio "
+                        "(ignora a dispersão interna)."
+                    )
 
+                    # =============================================
+                    # Efeitos médios dos fatores (S/N das réplicas) — Tabelas separadas
+                    # =============================================
+                    st.subheader("📈 Efeitos médios dos fatores (S/N das réplicas)")
+                    
+                    # Junta plano + S/N das réplicas
+                    df_effects = df_plan.merge(
+                        sn_table[["Experimento", f"S/N das réplicas ({var_label}) [dB]"]],
+                        on="Experimento",
+                        how="left"
+                    )
+                    sn_col = f"S/N das réplicas ({var_label}) [dB]"
+                    
+                    # 1) Tabelas de efeitos médios por fator (separadas)
+                    factor_cols = [c for c in df_plan.columns if c != "Experimento"]
+                    per_factor_tables = {}
+                    for fac in factor_cols:
+                        g = df_effects.groupby(fac)[sn_col].mean().sort_index()
+                        fac_df = pd.DataFrame({"Nível": g.index, "S/N médio (dB)": g.values})
+                        per_factor_tables[fac] = fac_df
+                    
+                    st.markdown("🔍 Tabelas por fator (S/N médio por nível)")
+
+                    COLS_PER_ROW = 4  # ajuste para 2, 3, ou 4 conforme preferir
+                    
+                    for i in range(0, len(factor_cols), COLS_PER_ROW):
+                        # pega o “bloco” de até 4 fatores
+                        bloco = factor_cols[i:i + COLS_PER_ROW]
+                        cols = st.columns(len(bloco))
+                        for j, fac in enumerate(bloco):
+                            with cols[j]:
+                                st.markdown(f"**Fator: {fac}**")
+                                st.dataframe(per_factor_tables[fac], use_container_width=True, hide_index=True)
+
+                    
+                    # 2) Sumário: melhor nível, Delta e ranking
+                    summary_rows = []
+                    for fac, fac_df in per_factor_tables.items():
+                        if fac_df.empty:
+                            best_lvl = np.nan; delta = np.nan
+                        else:
+                            vmax = fac_df["S/N médio (dB)"].max()
+                            vmin = fac_df["S/N médio (dB)"].min()
+                            best_lvl = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
+                            delta = float(vmax - vmin)
+                        summary_rows.append({"Fator": fac, "Melhor nível": best_lvl, "Delta (dB)": delta})
+                    
+                    summary_df = pd.DataFrame(summary_rows).sort_values("Delta (dB)", ascending=False).reset_index(drop=True)
+                    summary_df["Rank (Delta)"] = np.arange(1, len(summary_df) + 1)
+                    
+                    st.markdown("🔍 Sumário (melhor nível, Delta e ranking)")
+                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                    
+                    # 3) Downloads
+                    colA, colB = st.columns(2)
+                    with colA:
+                        csv_efx = pd.concat(
+                            [df.assign(**{"Fator": fac}) for fac, df in per_factor_tables.items()],
+                            ignore_index=True
+                        )
+                        st.download_button(
+                            "📥 Baixar efeitos por nível (CSV)",
+                            data=csv_efx.to_csv(index=False).encode("utf-8"),
+                            file_name="efeitos_medios_por_nivel.csv",
+                            mime="text/csv",
+                        )
+                    with colB:
+                        st.download_button(
+                            "📥 Baixar sumário (CSV)",
+                            data=summary_df.to_csv(index=False).encode("utf-8"),
+                            file_name="sumario_melhor_nivel_delta.csv",
+                            mime="text/csv",
+                        )
+
+                    # =============================================
+                    # 🎯 Ponto ótimo (Taguchi) — com S/N previsto
+                    # =============================================
+                    st.subheader("🎯 Ponto ótimo (Taguchi)")
+                    
+                    # Média global do S/N (das réplicas)
+                    grand_mean = df_effects[sn_col].mean()
+                    
+                    # Seleciona, para cada fator, o nível com maior S/N médio
+                    opt_levels = {}
+                    selected_level_means = []
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables[fac]
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            best_lvl = None
+                            best_mean = np.nan
+                        else:
+                            # índice do maior S/N médio
+                            idx = fac_df["S/N médio (dB)"].idxmax()
+                            best_lvl = fac_df.loc[idx, "Nível"]
+                            best_mean = float(fac_df.loc[idx, "S/N médio (dB)"])
+                        opt_levels[fac] = {"Nível ótimo": best_lvl, "S/N médio (dB)": best_mean}
+                        selected_level_means.append(best_mean)
+                    
+                    # S/N previsto no ponto ótimo (regra aditiva Taguchi):
+                    # S/N_pred ≈ sum(level_mean_f) - (k - 1) * grand_mean
+                    k = len(factor_cols)
+                    sn_pred = np.nan
+                    if k > 0 and not np.isnan(grand_mean) and not np.isnan(np.array(selected_level_means)).any():
+                        sn_pred = float(np.sum(selected_level_means) - (k - 1) * grand_mean)
+                    
+                    # Renderização: caixa com a recomendação
+                    linhas = []
+                    for fac, info in opt_levels.items():
+                        lvl = info["Nível ótimo"]
+                        snm = info["S/N médio (dB)"]
+                        if lvl is None or np.isnan(snm):
+                            linhas.append(f"- **{fac}** → (sem nível ótimo definido)")
+                        else:
+                            try:
+                                linhas.append(f"- **{fac}** → **{lvl}** (S/N médio {snm:.3f} dB)")
+                            except Exception:
+                                linhas.append(f"- **{fac}** → **{lvl}** (S/N médio {snm} dB)")
+                    
+                    texto = f"**S/N médio global:** {grand_mean:.3f} dB\n\n" if not np.isnan(grand_mean) else ""
+                    texto += "\n".join(linhas)
+                    if not np.isnan(sn_pred):
+                        texto += f"\n\n**S/N previsto no ponto ótimo:** ≈ {sn_pred:.3f} dB"
+                    
+                    st.success(f"**Recomendação Taguchi (com base no S/N das réplicas):**\n\n{texto}")
+                    
+                    # Checa se a combinação ótima existe na matriz (pode não existir em Taguchi)
+                    mask = np.ones(len(df_plan), dtype=bool)
+                    for fac in factor_cols:
+                        best_lvl = opt_levels[fac]["Nível ótimo"]
+                        if best_lvl is None:
+                            mask &= False
+                        else:
+                            mask &= (df_plan[fac].astype(str) == str(best_lvl))
+                    matches = df_plan.loc[mask, "Experimento"].tolist()
+                    
+                    if matches:
+                        st.caption(f"✅ A combinação ótima **existe** na matriz: Experimento(s) {matches}.")
+                    else:
+                        st.caption("ℹ️ A combinação ótima é **combinada** e pode não existir na matriz; o S/N previsto usa a soma de efeitos de Taguchi.")
+        
+        
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
