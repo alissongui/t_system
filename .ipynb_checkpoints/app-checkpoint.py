@@ -231,17 +231,17 @@ if upl:
                     continue
 
                 if mesmo_numero_niveis:
+                    # CORREÇÃO: Verificar se a matriz tem colunas suficientes para o tipo de nível
                     if niveis_unicos[0] == 2 and specs['cols2'] >= num_fatores:
                         matrizes_candidatas.append((nome, specs))
                     elif niveis_unicos[0] == 3 and specs['cols3'] >= num_fatores:
                         matrizes_candidatas.append((nome, specs))
                 else:
-                    # Mistos: somente L18 (2^1 3^7)
-                    if nome == "L18(2^1 3^7)":
-                        f2 = sum(1 for n in niveis_por_fator if n == 2)
-                        f3 = sum(1 for n in niveis_por_fator if n == 3)
-                        if f2 <= specs['cols2'] and f3 <= specs['cols3']:
-                            matrizes_candidatas.append((nome, specs))
+                    # Mistos: verificar se a matriz suporta a combinação de fatores
+                    f2 = sum(1 for n in niveis_por_fator if n == 2)
+                    f3 = sum(1 for n in niveis_por_fator if n == 3)
+                    if specs['cols2'] >= f2 and specs['cols3'] >= f3:
+                        matrizes_candidatas.append((nome, specs))
 
             # Ordenar por n (menos experimentos primeiro)
             matrizes_candidatas.sort(key=lambda x: x[1]['n'])
@@ -264,7 +264,6 @@ if upl:
 
                 df_recomendacoes = pd.DataFrame(recomendacoes)
                 st.dataframe(df_recomendacoes, use_container_width=True)
-                #st.markdown("### 📐 Fórmula da economia de corridas")
                 st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
                 st.latex(r"\text{Economia (\%)} = \Bigg( 1 - \frac{n_{OA}}{n_{fatorial}} \Bigg) \times 100")
                 
@@ -329,8 +328,47 @@ if upl:
                             st.session_state['var_label'] = var_label
 
                             st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
-                            # Se sua versão não suportar st.rerun(), troque por st.experimental_rerun()
-                            st.rerun()
+                            
+                            # Exibir a matriz experimental gerada
+                            st.subheader("📊 Matriz Experimental Gerada")
+                            st.dataframe(df_niveis, use_container_width=True, hide_index=True)
+                            
+                            # Adicionar botão para download
+                            @st.cache_data
+                            def convert_df_to_csv(df):
+                                return df.to_csv(index=False, sep=';').encode('utf-8')
+                            
+                            csv = convert_df_to_csv(df_niveis)
+                            
+                            st.download_button(
+                                label="📥 Download da Matriz Experimental (CSV)",
+                                data=csv,
+                                file_name=f"matriz_experimental_{matriz_selecionada}.csv",
+                                mime="text/csv",
+                            )
+                            
+                            # Adicionar seção para upload de resultados
+                            st.subheader("📤 Upload de Resultados Experimentais")
+                            st.info(f"Execute os experimentos conforme a matriz acima e faça o upload dos resultados para {var_label}.")
+                            
+                            result_upl = st.file_uploader("**Carregar arquivo de resultados**", type=["xlsx", "csv"],
+                                                         help="Selecione o arquivo com os resultados experimentais.")
+                            
+                            if result_upl:
+                                try:
+                                    if result_upl.name.endswith('.csv'):
+                                        df_resultados = pd.read_csv(result_upl, sep=';')
+                                    else:
+                                        df_resultados = pd.read_excel(result_upl)
+                                    
+                                    st.success("✅ Arquivo de resultados carregado avec sucesso!")
+                                    st.dataframe(df_resultados, use_container_width=True, hide_index=True)
+                                    
+                                    # Aqui você pode adicionar a lógica para processar os resultados
+                                    # e calcular S/N ratio, efeitos médios, etc.
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
 
                     except Exception as e:
                         st.error(f"❌ Erro ao gerar a matriz: {str(e)}")
