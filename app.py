@@ -2,6 +2,9 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import math
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import plotly.io as pio
 
 # =============================================
 # Configuração
@@ -253,7 +256,7 @@ if upl:
                                 return df.to_csv(index=False, sep=';').encode('utf-8')
                             csv = convert_df_to_csv(df_niveis)
                             st.download_button(
-                                label="📥 Download da Matriz Experimental (CSV)",
+                                label="📥 Baixar Matriz Experimental (CSV)",
                                 data=csv,
                                 file_name=f"matriz_experimental_{matriz_selecionada}.csv",
                                 mime="text/csv",
@@ -274,24 +277,24 @@ if st.session_state.get('df_experimentos') is not None:
     st.subheader("📊 Matriz Experimental Gerada")
     st.dataframe(df_plan, use_container_width=True, hide_index=True)
 
-    st.subheader("📥 Download de Resultados Experimentais")
+    st.subheader("📤 Upload de Resultados Experimentais")
     var_label = st.session_state.get('var_label', 'Variável de Interesse')
 
     # Tipo de razão S/N
     sn_tipo = st.selectbox(
         "Tipo de razão S/N (Taguchi)",
-        options=["Larger-the-better", "Smaller-the-better", "Nominal-the-best"],
+        options=["Maior é melhor", "Menor é melhor", "Nominal é melhor"],
         index=0,
     )
     nominal_target = None
-    if sn_tipo == "Nominal-the-best":
-        nominal_target = st.number_input("Alvo (m)", value=0.0, help="Para Nominal-the-best")
+    if sn_tipo == "Nominal é melhor":
+        nominal_target = st.number_input("Alvo (m)", value=0.0, help="Para Nominal é melhor")
 
     # Fórmula em LaTeX
     sn_formulas = {
-        "Larger-the-better":  r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
-        "Smaller-the-better": r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
-        "Nominal-the-best":   r"S/N = 10 \ln \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
+        "Maior é melhor":  r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
+        "Menor é melhor": r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
+        "Nominal é melhor":   r"S/N = 10 \ln \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
     }
     st.markdown("**Fórmula S/N selecionada:**")
     st.latex(sn_formulas[sn_tipo])
@@ -363,11 +366,11 @@ if st.session_state.get('df_experimentos') is not None:
                             return np.nan
                         return 10.0 * np.log((target**2) / np.var(vals, ddof=1))
                     def compute_snr(vals, tipo, target=None):
-                        if tipo == "Larger-the-better":
+                        if tipo == "Maior é melhor":
                             return sn_larger_better(vals)
-                        if tipo == "Smaller-the-better":
+                        if tipo == "Menor é melhor":
                             return sn_smaller_better(vals)
-                        if tipo == "Nominal-the-best":
+                        if tipo == "Nominal é melhor":
                             return sn_nominal_best(vals, target)
                         return np.nan
 
@@ -389,7 +392,6 @@ if st.session_state.get('df_experimentos') is not None:
                     sn_table = pd.DataFrame({
                         "Experimento": df_plan["Experimento"],
                         f"Média de {var_label}": mean_y.astype(float),
-                        f"S/N da média ({var_label}) [dB]": sn_mean,
                         f"S/N das réplicas ({var_label}) [dB]": sn_reps,
                     })
 
@@ -542,6 +544,153 @@ if st.session_state.get('df_experimentos') is not None:
                     else:
                         st.caption("ℹ️ A combinação ótima é **combinada** e pode não existir na matriz; o S/N previsto usa a soma de efeitos de Taguchi.")
         
+                    # =============================================
+                    # 📈 Efeitos médios — gráficos (estilo Minitab)
+                    # =============================================
+                    
+                    
+                    # =============================================
+                    # 🖼️ Todos os fatores em uma única figura (níveis numerados)
+                    # =============================================
+                    st.subheader("📊 Efeitos médios — gráficos por fator")
+                    
+                    rows = math.ceil(len(factor_cols)/3) if len(factor_cols) > 0 else 1
+                    cols = 3 if len(factor_cols) >= 3 else (len(factor_cols) if len(factor_cols) > 0 else 1)
+                    fig_all = make_subplots(rows=rows, cols=cols, subplot_titles=factor_cols)
+                    
+                    r, c = 1, 1
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables[fac].copy().reset_index(drop=True)
+                        fac_df["# Nível"] = np.arange(1, len(fac_df) + 1)
+                        x_num  = fac_df["# Nível"].tolist()
+                        y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
+                    
+                        fig_all.add_trace(
+                            go.Scatter(
+                                x=x_num, y=y_vals,
+                                mode="lines+markers",
+                                name=f"{fac}",
+                                showlegend=False,
+                                hovertemplate="Nível=%{x}<br>S/N médio=%{y:.3f} dB<extra></extra>",
+                            ),
+                            row=r, col=c
+                        )
+                    
+                        if not math.isnan(grand_mean):
+                            fig_all.add_trace(
+                                go.Scatter(
+                                    x=x_num, y=[grand_mean]*len(x_num),
+                                    mode="lines",
+                                    name="Média global",
+                                    line=dict(dash="dash"),
+                                    showlegend=False,
+                                    hovertemplate="Média global=%{y:.3f} dB<extra></extra>",
+                                ),
+                                row=r, col=c
+                            )
+                    
+                        fig_all.update_xaxes(title_text="Níveis dos parâmetros", row=r, col=c)
+                        fig_all.update_yaxes(title_text="S/N médio (dB)", row=r, col=c)
+                    
+                        # avança grid 3 colunas por linha
+                        c += 1
+                        if c > 3:
+                            c = 1
+                            r += 1
+                    
+                    fig_all.update_layout(height=280*rows, margin=dict(l=10, r=10, t=50, b=10))
+                    st.plotly_chart(fig_all, use_container_width=True)
+
+                    # ============================
+                    # Downloads (cores vs P&B) + anti-corte
+                    # ============================
+                    
+                    
+                    st.markdown("📄 Baixar figura")
+                    color_mode = st.radio(
+                        "Modo de cores para exportação:",
+                        ["Cores (original)", "Preto e branco"],
+                        index=0,
+                        help="A visualização na tela permanece em cores. A opção afeta apenas os arquivos baixados."
+                    )
+                    
+                    # Faz uma CÓPIA para exportação (preserva a que está na tela)
+                    fig_exp = fig_all.to_dict()  # cópia “barata”
+                    fig_exp = go.Figure(fig_exp)
+                    
+                    # Margens generosas e fundos brancos para evitar cortes e fundos cinza
+                    rows = math.ceil(len(factor_cols) / 3) if len(factor_cols) > 0 else 1
+                    export_width  = 1100                      # largura fixa para exportar
+                    export_height = 320 * rows + 80           # mais alto que o mostrado (anti-corte)
+                    
+                    fig_exp.update_layout(
+                        width=export_width,
+                        height=export_height,
+                        margin=dict(l=70, r=30, t=60, b=70),  # margens maiores -> evita corte à esquerda/embaixo
+                        paper_bgcolor="white",
+                        plot_bgcolor="white",
+                        template="plotly_white",
+                    )
+                    
+                    # Aplica estilo preto-e-branco se selecionado
+                    if color_mode == "Preto e branco":
+                        # Traços: pretos; diferenciar com traços/dashes diferentes
+                        dash_cycle = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+                        t_idx = 0
+                        for i, tr in enumerate(fig_exp.data):
+                            if isinstance(tr, go.Scatter):
+                                # Linha da média global: trace sem marcador e (se houver) legenda “Média global”
+                                is_global_mean = (getattr(tr, "name", "") == "Média global") or (
+                                    hasattr(tr, "hovertemplate") and "Média global" in str(tr.hovertemplate)
+                                )
+                                tr.update(
+                                    line=dict(color="black", width=2, dash=("dot" if is_global_mean else dash_cycle[t_idx % len(dash_cycle)])),
+                                    marker=dict(color="black", size=7),
+                                )
+                                if not is_global_mean:
+                                    t_idx += 1
+                    
+                    # Render na tela segue como está; exportação usa kaleido
+                    # Tenta exportar; se kaleido não estiver instalado, mostra instrução amigável
+                    def _export_bytes(fmt: str):
+                        try:
+                            return fig_exp.to_image(format=fmt, scale=2, width=export_width, height=export_height)
+                        except Exception as e:
+                            st.warning(
+                                "Para exportar imagens, é necessário o pacote **kaleido**.\n\n"
+                                "Instale com:\n\n"
+                                "`pip install -U kaleido`\n\n"
+                                "ou\n\n"
+                                "`conda install -c conda-forge python-kaleido -y`"
+                            )
+                            raise
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        try:
+                            png_bytes = _export_bytes("png")
+                            st.download_button("📥 PNG", data=png_bytes, file_name="efeitos_medios_todos_fatores.png", mime="image/png")
+                        except Exception:
+                            pass
+                    with col2:
+                        try:
+                            svg_bytes = _export_bytes("svg")
+                            st.download_button("📥 SVG (vetorial)", data=svg_bytes, file_name="efeitos_medios_todos_fatores.svg", mime="image/svg+xml")
+                        except Exception:
+                            pass
+                    with col3:
+                        try:
+                            pdf_bytes = _export_bytes("pdf")
+                            st.download_button("📥 PDF", data=pdf_bytes, file_name="efeitos_medios_todos_fatores.pdf", mime="application/pdf")
+                        except Exception:
+                            pass
+                    with col4:
+                        # HTML interativo sempre em CORES (original da tela)
+                        html_bytes = pio.to_html(fig_all, include_plotlyjs="cdn", full_html=False).encode("utf-8")
+                        st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
+
+
+
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
