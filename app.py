@@ -553,21 +553,41 @@ if st.session_state.get('df_experimentos') is not None:
                     # 🖼️ Todos os fatores em uma única figura (níveis numerados)
                     # =============================================
                     st.subheader("📊 Efeitos médios — gráficos por fator")
-                    
-                    rows = math.ceil(len(factor_cols)/3) if len(factor_cols) > 0 else 1
-                    cols = 3 if len(factor_cols) >= 3 else (len(factor_cols) if len(factor_cols) > 0 else 1)
+
+                    # Até 4 gráficos por linha
+                    MAX_COLS = 4
+                    cols = MAX_COLS if len(factor_cols) >= MAX_COLS else (len(factor_cols) if len(factor_cols) > 0 else 1)
+                    rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
                     fig_all = make_subplots(rows=rows, cols=cols, subplot_titles=factor_cols)
+                    
+                    # ✅ Mesma escala Y em todos os subplots (inclui a média global)
+                    all_y = []
+                    for _fac in factor_cols:
+                        _df = per_factor_tables[_fac].copy().reset_index(drop=True)
+                        all_y.extend(_df["S/N médio (dB)"].astype(float).tolist())
+                    if not math.isnan(grand_mean):
+                        all_y.append(float(grand_mean))
+                    
+                    if len(all_y) > 0:
+                        ymin, ymax = min(all_y), max(all_y)
+                        pad = 0.1 * (ymax - ymin if ymax > ymin else (abs(ymax) if ymax != 0 else 1.0))
+                        y_range = [ymin - pad, ymax + pad]
+                    else:
+                        y_range = None
                     
                     r, c = 1, 1
                     for fac in factor_cols:
                         fac_df = per_factor_tables[fac].copy().reset_index(drop=True)
-                        fac_df["# Nível"] = np.arange(1, len(fac_df) + 1)
-                        x_num  = fac_df["# Nível"].tolist()
+                    
+                        # X categórico: evita marcas 1.5, 2.5 etc.
+                        num_levels = len(fac_df)
+                        x_cat = [str(i) for i in range(1, num_levels + 1)]
                         y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
                     
+                        # Curva do fator
                         fig_all.add_trace(
                             go.Scatter(
-                                x=x_num, y=y_vals,
+                                x=x_cat, y=y_vals,
                                 mode="lines+markers",
                                 name=f"{fac}",
                                 showlegend=False,
@@ -576,30 +596,46 @@ if st.session_state.get('df_experimentos') is not None:
                             row=r, col=c
                         )
                     
+                        # Linha da média global em TODOS os subplots (legenda só no 1º)
                         if not math.isnan(grand_mean):
                             fig_all.add_trace(
                                 go.Scatter(
-                                    x=x_num, y=[grand_mean]*len(x_num),
+                                    x=x_cat, y=[grand_mean]*len(x_cat),
                                     mode="lines",
                                     name="Média global",
                                     line=dict(dash="dash"),
-                                    showlegend=False,
+                                    showlegend=(r == 1 and c == 1),
                                     hovertemplate="Média global=%{y:.3f} dB<extra></extra>",
                                 ),
                                 row=r, col=c
                             )
                     
-                        fig_all.update_xaxes(title_text="Níveis dos parâmetros", row=r, col=c)
-                        fig_all.update_yaxes(title_text="S/N médio (dB)", row=r, col=c)
+                        # Eixos: Y rotulado só no 1º subplot; todos com o mesmo range
+                        if r == 1 and c == 1:
+                            fig_all.update_yaxes(title_text="S/N médio (dB)", range=y_range, row=r, col=c)
+                        else:
+                            fig_all.update_yaxes(title_text=None, range=y_range, row=r, col=c)
                     
-                        # avança grid 3 colunas por linha
+                        # X categórico e título
+                        fig_all.update_xaxes(
+                            title_text="Níveis dos parâmetros",
+                            type="category",          # força eixo categórico
+                            tickmode="array",         # usa ticks explícitos
+                            tickvals=x_cat,           # ["1","2","3",...]
+                            ticktext=x_cat,           # rótulos iguais aos valores
+                            categoryorder="category ascending",
+                            row=r, col=c
+                        )
+                    
+                        # avança até 'cols' colunas por linha (máx 4)
                         c += 1
-                        if c > 3:
+                        if c > cols:
                             c = 1
                             r += 1
                     
                     fig_all.update_layout(height=280*rows, margin=dict(l=10, r=10, t=50, b=10))
                     st.plotly_chart(fig_all, use_container_width=True)
+
 
                     # ============================
                     # Downloads (cores vs P&B) + anti-corte
@@ -619,7 +655,7 @@ if st.session_state.get('df_experimentos') is not None:
                     fig_exp = go.Figure(fig_exp)
                     
                     # Margens generosas e fundos brancos para evitar cortes e fundos cinza
-                    rows = math.ceil(len(factor_cols) / 3) if len(factor_cols) > 0 else 1
+                    rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
                     export_width  = 1100                      # largura fixa para exportar
                     export_height = 320 * rows + 80           # mais alto que o mostrado (anti-corte)
                     
