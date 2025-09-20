@@ -1,0 +1,133 @@
+# =============================================
+                    # 🎯 Ponto ótimo — Taguchi (aditivo) vs Regressão (OLS)
+                    # =============================================
+                    st.subheader("🎯 Ponto ótimo (Taguchi × Regressão)")
+
+                    # ---------- Fórmulas ----------
+                    st.markdown("**Modelos considerados:**")
+                    st.latex(r"\textbf{(1) Taguchi (aditivo):}\quad \hat{\eta}_{\text{Taguchi}} \approx \sum_{f=1}^{k} \bar{\eta}_{f,\ell_f^\star} - (k-1)\,\bar{\eta}")
+                    st.caption("Onde: $\\bar{\\eta}$ é a média global de S/N; $\\bar{\\eta}_{f,\\ell}$ é o S/N médio do fator $f$ no nível $\\ell$; $k$ é o nº de fatores; e $\\ell_f^\\star$ é o nível com maior $\\bar{\\eta}_{f,\\ell}$.")
+
+                    st.latex(r"\textbf{(2) Regressão linear (sem interações):}\quad \hat{\eta} = \beta_0 + \sum_{f=1}^{k}\sum_{\ell=2}^{L_f} \beta_{f,\ell}\,\mathbf{1}\{F_f=\ell\}")
+                    st.caption("Codificação por *dummies* com referência no nível 1 de cada fator (sem interações). Ajuste por MQO sobre o S/N das réplicas.")
+
+                    # ---------- Taguchi (aditivo) ----------
+                    # S/N médio global (das réplicas)
+                    grand_mean = df_effects[sn_col].mean()
+
+                    opt_levels = {}
+                    selected_level_means = []
+                    opt_rows = []
+
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables[fac]
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
+                            opt_rows.append({"Fator": fac, "Nível(éis) ótimo(s)": "-", "S/N médio (dB)": float("nan")})
+                            selected_level_means.append(float("nan"))
+                            continue
+
+                        vmax = fac_df["S/N médio (dB)"].max()
+                        best_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
+
+                        opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
+                        selected_level_means.append(float(vmax))
+                        opt_rows.append({
+                            "Fator": fac,
+                            "Nível(éis) ótimo(s)": " / ".join(best_levels),
+                            "S/N médio (dB)": float(vmax),
+                        })
+
+                    k = len(factor_cols)
+                    sn_pred_taguchi = float("nan")
+                    if k > 0 and not np.isnan(grand_mean) and not np.isnan(np.array(selected_level_means)).any():
+                        sn_pred_taguchi = float(np.sum(selected_level_means) - (k - 1) * grand_mean)
+
+                    # ---------- Regressão (OLS sem interações) ----------
+                    # Matriz de design com dummies (drop_first=True impõe nível 1 como referência)
+                    X_cat = pd.get_dummies(df_plan[factor_cols].astype(str), drop_first=True)
+                    X = np.column_stack([np.ones(len(X_cat)), X_cat.values])  # adiciona intercepto
+                    y = df_effects[sn_col].astype(float).values.reshape(-1, 1)
+
+                    # MQO: beta = (X'X)^(-1) X'y   (usamos lstsq por robustez)
+                    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+                    y_hat = (X @ beta).ravel()
+
+                    # Métricas do ajuste
+                    y_mean = y.mean()
+                    SST = float(((y - y_mean)**2).sum())
+                    SSE = float(((y - y_hat.reshape(-1,1))**2).sum())
+                    R2 = 1 - (SSE / SST) if SST > 0 else np.nan
+                    n, p = X.shape[0], X.shape[1]  # p inclui intercepto
+                    R2_adj = 1 - (1 - R2) * (n - 1) / (max(n - p, 1)) if n > p else np.nan
+
+                    # Ponto "ótimo" por regressão (no espaço dos pontos do plano): escolhe a corrida com maior y_hat
+                    best_idx = int(np.argmax(y_hat))
+                    sn_pred_reg = float(y_hat[best_idx])
+                    best_combo_reg = df_plan.loc[best_idx, factor_cols].astype(str).to_dict()
+                    best_run_reg = int(df_plan.loc[best_idx, "Experimento"]) if "Experimento" in df_plan.columns else best_idx + 1
+
+                    # ---------- Visual comparativo ----------
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("S/N previsto — Taguchi (aditivo)", f"{sn_pred_taguchi:.3f} dB" if not np.isnan(sn_pred_taguchi) else "n/d")
+                    with col2:
+                        st.metric("S/N previsto — Regressão (OLS)", f"{sn_pred_reg:.3f} dB" if not np.isnan(sn_pred_reg) else "n/d")
+
+                    # Mini gráfico comparativo
+                    try:
+                        comp_fig = go.Figure()
+                        comp_fig.add_bar(name="Taguchi (ad.)", x=["Modelos"], y=[sn_pred_taguchi if not np.isnan(sn_pred_taguchi) else None])
+                        comp_fig.add_bar(name="Regressão (OLS)", x=["Modelos"], y=[sn_pred_reg if not np.isnan(sn_pred_reg) else None])
+                        comp_fig.update_layout(barmode="group", height=260, margin=dict(l=10, r=10, t=30, b=10), template="plotly_white",
+                                               yaxis_title="S/N previsto (dB)")
+                        st.plotly_chart(comp_fig, use_container_width=True)
+                    except Exception:
+                        pass
+
+                    # ---------- Tabela de níveis ótimos (Taguchi) ----------
+                    st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
+                    opt_table = pd.DataFrame(opt_rows)
+                    st.dataframe(opt_table, use_container_width=True, hide_index=True)
+                    st.download_button(
+                        "📥 Baixar níveis ótimos (CSV)",
+                        data=opt_table.to_csv(index=False).encode("utf-8"),
+                        file_name="ponto_otimo_taguchi.csv",
+                        mime="text/csv",
+                    )
+
+                    # ---------- Coeficientes do modelo de Regressão ----------
+                    coef_names = ["Intercepto"] + list(X_cat.columns)
+                    coef_vals = beta.ravel().tolist()
+                    coef_table = pd.DataFrame({"Coeficiente": coef_names, "Estimativa (β)": coef_vals})
+                    st.markdown("**Coeficientes — Regressão (OLS, sem interações):**")
+                    st.dataframe(coef_table, use_container_width=True, hide_index=True)
+                    st.caption(f"**R²:** {R2:.4f} — **R² ajustado:** {R2_adj:.4f}")
+                    st.download_button(
+                        "📥 Baixar coeficientes da regressão (CSV)",
+                        data=coef_table.to_csv(index=False).encode("utf-8"),
+                        file_name="regressao_coeficientes.csv",
+                        mime="text/csv",
+                    )
+
+                    # ---------- Existência da combinação ótima (Taguchi) na matriz ----------
+                    mask = np.ones(len(df_plan), dtype=bool)
+                    for fac in factor_cols:
+                        best_ls = opt_levels[fac]["Níveis ótimos"]
+                        if len(best_ls) == 0:
+                            mask &= False
+                        else:
+                            mask &= df_plan[fac].astype(str).isin(best_ls)
+
+                    matches = df_plan.loc[mask, "Experimento"].tolist()
+                    if matches:
+                        st.caption(f"✅ Existe(m) experimento(s) compatível(is) com a combinação ótima (Taguchi): {matches}.")
+                    else:
+                        st.caption("ℹ️ A combinação ótima (Taguchi) é combinada e pode não existir na matriz; a predição usa soma de efeitos.")
+
+                    # ---------- Observação sobre os modelos ----------
+                    st.info(
+                        "• **Taguchi (aditivo)** considera a soma dos efeitos médios por nível; é simples e usual nos OAs.  \n"
+                        "• **Regressão (OLS)** aqui foi ajustada **sem interações** (apenas efeitos principais, dummies com referência). "
+                        "Se quiser, podemos incluir **interações** para refinar a predição (dependendo da resolução da OA e do nº de corridas)."
+                    )

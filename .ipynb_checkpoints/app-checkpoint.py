@@ -478,77 +478,14 @@ if st.session_state.get('df_experimentos') is not None:
                             mime="text/csv",
                         )
 
-                    # =============================================
-                    # 🎯 Ponto ótimo (Taguchi) — com S/N previsto
-                    # =============================================
-                    st.subheader("🎯 Ponto ótimo (Taguchi)")
-                    
-                    # Média global do S/N (das réplicas)
-                    grand_mean = df_effects[sn_col].mean()
-                    
-                    # Seleciona, para cada fator, o nível com maior S/N médio
-                    opt_levels = {}
-                    selected_level_means = []
-                    for fac in factor_cols:
-                        fac_df = per_factor_tables[fac]
-                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                            best_lvl = None
-                            best_mean = np.nan
-                        else:
-                            # índice do maior S/N médio
-                            idx = fac_df["S/N médio (dB)"].idxmax()
-                            best_lvl = fac_df.loc[idx, "Nível"]
-                            best_mean = float(fac_df.loc[idx, "S/N médio (dB)"])
-                        opt_levels[fac] = {"Nível ótimo": best_lvl, "S/N médio (dB)": best_mean}
-                        selected_level_means.append(best_mean)
-                    
-                    # S/N previsto no ponto ótimo (regra aditiva Taguchi):
-                    # S/N_pred ≈ sum(level_mean_f) - (k - 1) * grand_mean
-                    k = len(factor_cols)
-                    sn_pred = np.nan
-                    if k > 0 and not np.isnan(grand_mean) and not np.isnan(np.array(selected_level_means)).any():
-                        sn_pred = float(np.sum(selected_level_means) - (k - 1) * grand_mean)
-                    
-                    # Renderização: caixa com a recomendação
-                    linhas = []
-                    for fac, info in opt_levels.items():
-                        lvl = info["Nível ótimo"]
-                        snm = info["S/N médio (dB)"]
-                        if lvl is None or np.isnan(snm):
-                            linhas.append(f"- **{fac}** → (sem nível ótimo definido)")
-                        else:
-                            try:
-                                linhas.append(f"- **{fac}** → **{lvl}** (S/N médio {snm:.3f} dB)")
-                            except Exception:
-                                linhas.append(f"- **{fac}** → **{lvl}** (S/N médio {snm} dB)")
-                    
-                    texto = f"**S/N médio global:** {grand_mean:.3f} dB\n\n" if not np.isnan(grand_mean) else ""
-                    texto += "\n".join(linhas)
-                    if not np.isnan(sn_pred):
-                        texto += f"\n\n**S/N previsto no ponto ótimo:** ≈ {sn_pred:.3f} dB"
-                    
-                    st.success(f"**Recomendação Taguchi (com base no S/N das réplicas):**\n\n{texto}")
-                    
-                    # Checa se a combinação ótima existe na matriz (pode não existir em Taguchi)
-                    mask = np.ones(len(df_plan), dtype=bool)
-                    for fac in factor_cols:
-                        best_lvl = opt_levels[fac]["Nível ótimo"]
-                        if best_lvl is None:
-                            mask &= False
-                        else:
-                            mask &= (df_plan[fac].astype(str) == str(best_lvl))
-                    matches = df_plan.loc[mask, "Experimento"].tolist()
-                    
-                    if matches:
-                        st.caption(f"✅ A combinação ótima **existe** na matriz: Experimento(s) {matches}.")
-                    else:
-                        st.caption("ℹ️ A combinação ótima é **combinada** e pode não existir na matriz; o S/N previsto usa a soma de efeitos de Taguchi.")
         
                     # =============================================
                     # 📈 Efeitos médios — gráficos (estilo Minitab)
                     # =============================================
                     
-                    
+                    # 👉 calcular média global do S/N (das réplicas) ANTES dos gráficos
+                    grand_mean = df_effects[sn_col].mean()
+
                     # =============================================
                     # 🖼️ Todos os fatores em uma única figura (níveis numerados)
                     # =============================================
@@ -726,6 +663,131 @@ if st.session_state.get('df_experimentos') is not None:
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
 
+                    st.subheader("🎯 Análise do Ponto Ótimo")
+
+                    # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
+                    opt_levels = {}
+                    opt_rows = []
+                    selected_level_means = []
+                    
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables[fac]
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
+                            opt_rows.append({"Fator": fac, "Nível(éis) ótimo(s)": "-", "S/N médio (dB)": float("nan")})
+                            selected_level_means.append(float("nan"))
+                            continue
+                    
+                        vmax = fac_df["S/N médio (dB)"].max()
+                        best_levels = (
+                            fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
+                            .astype(str)
+                            .tolist()
+                        )
+                    
+                        opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
+                        selected_level_means.append(float(vmax))
+                        opt_rows.append({
+                            "Fator": fac,
+                            "Nível(éis) ótimo(s)": " / ".join(best_levels),
+                            "S/N médio (dB)": float(vmax),
+                        })
+                    
+                    st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
+                    opt_table = pd.DataFrame(opt_rows)
+                    st.dataframe(opt_table, use_container_width=True, hide_index=True)
+                    
+                    st.download_button(
+                        "📥 Baixar níveis ótimos (CSV)",
+                        data=opt_table.to_csv(index=False).encode("utf-8"),
+                        file_name="ponto_otimo_taguchi.csv",
+                        mime="text/csv",
+                    )
+
+                    st.subheader("🎯 Estimativas de Valores")
+
+                    # --- Modelos e fórmulas (versão simples) ---
+                    
+                    st.markdown("**Modelos considerados:**")
+                    
+                    st.markdown("**Modelo 1 — Taguchi Aditivo**")
+                    st.latex(r"\hat{\eta}_{\text{Taguchi}} \;=\; \sum_{f=1}^{k} \bar{\eta}_{f,\ell_f^\star} \;-\; (k-1)\,\bar{\eta}")
+                    
+                    st.markdown("""
+                    **Onde:**
+                    
+                    - $\\hat{\\eta}_{\\text{opt}}$ = S/N previsto para a condição ótima  
+                    - $\\bar{\\eta}$ = Média global de todas as medidas S/N  
+                    - $\\bar{\\eta}_{f,\\ell^\\star}$ = Melhor média S/N para o fator $f$  
+                    - $k$ = Número total de fatores  
+                    """)
+
+                    # --- Parâmetros da fórmula de Taguchi e cálculo no ponto ótimo ---
+                    
+                    # garante a média global (se já existir, reutiliza)
+                    try:
+                        grand_mean = float(grand_mean)
+                    except Exception:
+                        grand_mean = float(df_effects[sn_col].mean())
+                    
+                    rows = []
+                    best_means = []   # lista das \bar{η}_{f,ℓ*}
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables[fac]
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            rows.append({
+                                "Fator": fac,
+                                "Nível(éis) ótimo(s)": "-",
+                                r"$\bar{\eta}_{f,\ell^\star}$ (dB)": float("nan"),
+                                r"Desvio ($\bar{\eta}_{f,\ell^\star}-\bar{\eta}$) (dB)": float("nan"),
+                            })
+                            best_means.append(float("nan"))
+                            continue
+                    
+                        vmax = float(fac_df["S/N médio (dB)"].max())
+                        lvls = (
+                            fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
+                            .astype(str)
+                            .tolist()
+                        )
+                        rows.append({
+                            "Fator": fac,
+                            "Nível(éis) ótimo(s)": " / ".join(lvls),
+                            r"$\bar{\eta}_{f,\ell^\star}$ (dB)": vmax,
+                            r"Desvio ($\bar{\eta}_{f,\ell^\star}-\bar{\eta}$) (dB)": vmax - grand_mean,
+                        })
+                        best_means.append(vmax)
+                    
+                    params_df = pd.DataFrame(rows)
+                    
+                    # k = número de fatores
+                    k = len(factor_cols)
+                    
+                    # \hat{\eta}_{Taguchi} = \sum \bar{\eta}_{f,\ell^\star} - (k-1)\bar{\eta}
+                    if k > 0 and not np.isnan(grand_mean) and not np.isnan(np.array(best_means)).any():
+                        eta_hat_taguchi = float(np.sum(best_means) - (k - 1) * grand_mean)
+                    else:
+                        eta_hat_taguchi = float("nan")
+                    
+                    st.markdown("**Parâmetros da fórmula (Taguchi Aditivo):**")
+                    st.dataframe(params_df, use_container_width=True, hide_index=True)
+                    
+                    col_eta1, col_eta2, col_eta3 = st.columns(3)
+                    with col_eta1:
+                        st.metric("Média global  $\\bar{\\eta}$", f"{grand_mean:.3f} dB" if not np.isnan(grand_mean) else "n/d")
+                    with col_eta2:
+                        st.metric("Número de fatores  $k$", f"{k}")
+                    with col_eta3:
+                        st.metric("$\\hat{\\eta}_{\\text{Taguchi}}$ (previsto)", f"{eta_hat_taguchi:.3f} dB" if not np.isnan(eta_hat_taguchi) else "n/d")
+                    
+                    st.download_button(
+                        "📥 Baixar parâmetros (CSV)",
+                        data=params_df.to_csv(index=False).encode("utf-8"),
+                        file_name="parametros_taguchi_ponto_otimo.csv",
+                        mime="text/csv",
+                    )
+                    
+                    st.caption("Obs.: em caso de empate de níveis para um fator, todos os níveis ótimos são exibidos; o cálculo usa o mesmo valor de S/N médio ótimo (máximo).")
 
         
         except Exception as e:
