@@ -711,84 +711,50 @@ if st.session_state.get('df_experimentos') is not None:
                     st.markdown("**Modelos considerados:**")
                     
                     st.markdown("**Modelo 1 — Taguchi Aditivo**")
-                    st.latex(r"\hat{\eta}_{\text{Taguchi}} \;=\; \sum_{f=1}^{k} \bar{\eta}_{f,\ell_f^\star} \;-\; (k-1)\,\bar{\eta}")
+                    st.latex(r"\hat{\eta}_{\text{Taguchi}} \;=\; \sum_{k=1}^{n} \bar{\eta}^\star_{k} \;-\; (n-1)\,\bar{\eta}")
                     
                     st.markdown("""
                     **Onde:**
                     
-                    - $\\hat{\\eta}_{\\text{opt}}$ = S/N previsto para a condição ótima  
+                    - $\\hat{\\eta}_{\\text{Taguchi}}$ = S/N previsto para a condição ótima  
                     - $\\bar{\\eta}$ = Média global de todas as medidas S/N  
-                    - $\\bar{\\eta}_{f,\\ell^\\star}$ = Melhor média S/N para o fator $f$  
-                    - $k$ = Número total de fatores  
+                    - $\\bar{\\eta}^\star_{k}$ = Melhor média S/N para o fator $k$  
+                    - $n$ = Número total de fatores  
                     """)
 
-                    # --- Parâmetros da fórmula de Taguchi e cálculo no ponto ótimo ---
-                    
-                    # garante a média global (se já existir, reutiliza)
-                    try:
-                        grand_mean = float(grand_mean)
-                    except Exception:
-                        grand_mean = float(df_effects[sn_col].mean())
-                    
-                    rows = []
-                    best_means = []   # lista das \bar{η}_{f,ℓ*}
-                    for fac in factor_cols:
-                        fac_df = per_factor_tables[fac]
-                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                            rows.append({
-                                "Fator": fac,
-                                "Nível(éis) ótimo(s)": "-",
-                                r"$\bar{\eta}_{f,\ell^\star}$ (dB)": float("nan"),
-                                r"Desvio ($\bar{\eta}_{f,\ell^\star}-\bar{\eta}$) (dB)": float("nan"),
-                            })
-                            best_means.append(float("nan"))
-                            continue
-                    
-                        vmax = float(fac_df["S/N médio (dB)"].max())
-                        lvls = (
-                            fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
-                            .astype(str)
-                            .tolist()
-                        )
-                        rows.append({
-                            "Fator": fac,
-                            "Nível(éis) ótimo(s)": " / ".join(lvls),
-                            r"$\bar{\eta}_{f,\ell^\star}$ (dB)": vmax,
-                            r"Desvio ($\bar{\eta}_{f,\ell^\star}-\bar{\eta}$) (dB)": vmax - grand_mean,
-                        })
-                        best_means.append(vmax)
-                    
-                    params_df = pd.DataFrame(rows)
-                    
-                    # k = número de fatores
-                    k = len(factor_cols)
-                    
-                    # \hat{\eta}_{Taguchi} = \sum \bar{\eta}_{f,\ell^\star} - (k-1)\bar{\eta}
-                    if k > 0 and not np.isnan(grand_mean) and not np.isnan(np.array(best_means)).any():
-                        eta_hat_taguchi = float(np.sum(best_means) - (k - 1) * grand_mean)
-                    else:
-                        eta_hat_taguchi = float("nan")
-                    
-                    st.markdown("**Parâmetros da fórmula (Taguchi Aditivo):**")
-                    st.dataframe(params_df, use_container_width=True, hide_index=True)
-                    
-                    col_eta1, col_eta2, col_eta3 = st.columns(3)
-                    with col_eta1:
-                        st.metric("Média global  $\\bar{\\eta}$", f"{grand_mean:.3f} dB" if not np.isnan(grand_mean) else "n/d")
-                    with col_eta2:
-                        st.metric("Número de fatores  $k$", f"{k}")
-                    with col_eta3:
-                        st.metric("$\\hat{\\eta}_{\\text{Taguchi}}$ (previsto)", f"{eta_hat_taguchi:.3f} dB" if not np.isnan(eta_hat_taguchi) else "n/d")
-                    
-                    st.download_button(
-                        "📥 Baixar parâmetros (CSV)",
-                        data=params_df.to_csv(index=False).encode("utf-8"),
-                        file_name="parametros_taguchi_ponto_otimo.csv",
-                        mime="text/csv",
-                    )
-                    
-                    st.caption("Obs.: em caso de empate de níveis para um fator, todos os níveis ótimos são exibidos; o cálculo usa o mesmo valor de S/N médio ótimo (máximo).")
-
+                                        
+                # --- Valor previsto de Taguchi centralizado ---
+                try:
+                    grand_mean = float(grand_mean)
+                except Exception:
+                    grand_mean = float(df_effects[sn_col].mean())
+                
+                k = len(factor_cols)
+                best_means = np.array(selected_level_means, dtype=float)
+                
+                if k > 0 and not np.isnan(grand_mean) and not np.isnan(best_means).any():
+                    eta_hat_taguchi = float(best_means.sum() - (k - 1) * grand_mean)
+                else:
+                    eta_hat_taguchi = float("nan")
+                
+                # Renderiza centralizado via HTML
+                st.markdown(
+                    f"""
+                    <div style="text-align: center; margin-top: 15px; margin-bottom: 15px;">
+                        <div style="display: inline-block; padding: 12px 22px; background: #f0f4ff; 
+                                    border-radius: 10px; box-shadow: 0 3px 12px rgba(0,0,0,0.15);">
+                            <div style="font-size:14px; color:#374151; font-weight:600; margin-bottom:4px;">
+                                S/N previsto (Taguchi aditivo)
+                            </div>
+                            <div style="font-size:26px; font-weight:700; color:#111827;">
+                                {eta_hat_taguchi:.3f} dB
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
