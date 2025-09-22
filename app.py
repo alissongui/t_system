@@ -292,9 +292,9 @@ if st.session_state.get('df_experimentos') is not None:
 
     # Fórmula em LaTeX
     sn_formulas = {
-        "Maior é melhor":  r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
-        "Menor é melhor": r"S/N = -10 \ln \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
-        "Nominal é melhor":   r"S/N = 10 \ln \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
+        "Maior é melhor":  r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
+        "Menor é melhor": r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
+        "Nominal é melhor":   r"S/N = 10 \log_{10} \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
     }
     st.markdown("**Fórmula S/N selecionada:**")
     st.latex(sn_formulas[sn_tipo])
@@ -356,15 +356,15 @@ if st.session_state.get('df_experimentos') is not None:
                     # Funções S/N (locais)
                     def sn_larger_better(vals):
                         vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log(np.mean(1.0/(vals**2)))
+                        return -10.0 * np.log10(np.mean(1.0/(vals**2)))
                     def sn_smaller_better(vals):
                         vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log(np.mean(vals**2))
+                        return -10.0 * np.log10(np.mean(vals**2))
                     def sn_nominal_best(vals, target):
                         vals = np.asarray(vals, dtype=float)
                         if vals.size < 2:
                             return np.nan
-                        return 10.0 * np.log((target**2) / np.var(vals, ddof=1))
+                        return 10.0 * np.log10((target**2) / np.var(vals, ddof=1))
                     def compute_snr(vals, tipo, target=None):
                         if tipo == "Maior é melhor":
                             return sn_larger_better(vals)
