@@ -383,7 +383,7 @@ if st.session_state.get('df_experimentos') is not None:
                     # S/N da média
                     sn_mean = []
                     for m in mean_y:
-                        if sn_tipo == "Nominal-the-best":
+                        if sn_tipo == "Nominal é melhor":
                             sn_mean.append(np.nan)
                         else:
                             sn_mean.append(compute_snr(np.array([m]), sn_tipo, nominal_target))
@@ -749,82 +749,63 @@ if st.session_state.get('df_experimentos') is not None:
       
     
 
-                    st.subheader("🎯 Previsão do Desempenho Ótimo pelo Método Taguchi")
+                    st.subheader("📄 Previsão do Desempenho Ótimo pelo Método Taguchi")
 
                     st.markdown("**Modelo aditivo (visão geral):**")
-                    st.latex(r"\hat{Y}_{\text{prev}} \;=\; \bar{Y} \;+\; \sum_{f=1}^{k} \;\text{Efeito}_{f,\ell^\star}")
+                    st.latex(r"\hat{Y}_{\text{prev}} \;=\; \bar{Y} \;+\; \sum_{k=1}^{n} \;\text{Efeito}_{k,\ell^\star}")
                     
                     st.markdown("**Definição do efeito (por fator no nível ótimo):**")
-                    st.latex(r"\text{Efeito}_{f,\ell^\star} \;=\; \bar{Y}_{f,\ell^\star} \;-\; \bar{Y}")
+                    st.latex(r"\text{Efeito}_{k,\ell^\star} \;=\; \bar{Y}_{k,\ell^\star} \;-\; \bar{Y}")
                     
                     st.markdown(r"""
                     **Onde:**
                     - `Y_previsto` ($\hat{Y}_{\text{prev}}$) = valor previsto da característica de qualidade na condição ótima  
                     - `Y_global` ($\bar{Y}$) = média geral de todas as observações do experimento  
-                    - `Efeito do Fator no nível ótimo` ($\bar{Y}_{f,\ell^\star} - \bar{Y}$) = contribuição do fator $f$ no seu melhor nível $\ell^\star$  
-                    - $k$ = número total de fatores
+                    - `Efeito do Fator no nível ótimo` ($\bar{Y}_{k,\ell^\star} - \bar{Y}$) = contribuição do fator $k$ no seu melhor nível $\ell^\star$  
+                    - $n$ = número total de fatores
                     """)
 
-                
+                    st.markdown("**Forma equivalente (soma das melhores médias):**")
+                    st.latex(r"\hat{Y}_{\text{prev}} \;=\; \left(\sum_{k=1}^{n}  \bar{Y}_{k,\ell^\star}\right) \;-\; (n-1)\,\bar{Y}")   
               
 
                     st.subheader("🎯 Estimativa de valores")
-                    # =========================================================
-                    # Duas colunas: (Y) Resposta do Problema  |  (S/N) Sinal-Ruído
-                    # =========================================================
+                    
                     colY, colSN = st.columns(2)
                     
                     # -------------------- COLUNA ESQUERDA: Y --------------------
                     with colY:
-                        st.markdown("**Estimativa do Problema (Y)**")
-                        st.latex(r"\hat{Y}_{\text{Taguchi}} \;=\; \sum_{f=1}^{k} \bar{Y}_{f,\ell^\star} \;-\; (k-1)\,\bar{Y}")
-                        st.caption("Onde: $\\bar{Y}$ é a média global da resposta; "
-                                   "$\\bar{Y}_{f,\\ell^\\star}$ é a melhor média da resposta para o fator $f$; "
-                                   "$k$ é o nº de fatores.")
+                        st.markdown(f"**Estimativa do Problema ({var_label})**")
                     
-                        # Seletor da coluna Y (resposta física)
-                        cols_numeric = [c for c in df_effects.columns if pd.api.types.is_numeric_dtype(df_effects[c])]
-                        candidatos_y = [c for c in cols_numeric
-                                        if c != sn_col and "s/n" not in c.lower() and c.lower() not in ["experimento"]]
+                        try:
+                            col_media_otimo = f"Média de {var_label} no Nível Ótimo"
+                            if 'opt_table' in locals() and col_media_otimo in opt_table.columns:
+                                Y_best_means = opt_table[col_media_otimo].to_numpy(dtype=float)
+                                k = len(Y_best_means)
                     
-                        if len(candidatos_y) == 0:
-                            st.warning("Não há coluna numérica elegível para Y além do S/N.")
-                            Y_hat_taguchi = float("nan")
-                        else:
-                            y_col = st.selectbox("Escolha a coluna de resposta (Y):",
-                                                 options=candidatos_y, index=0,
-                                                 help="Selecione a variável física (ex.: produção de H₂).")
+                                Y_bar = float(np.nanmean(mean_y)) if 'mean_y' in locals() else float('nan')
                     
-                            # Média global de Y
-                            Y_bar = float(df_effects[y_col].mean())
-                    
-                            # Melhores médias por fator para Y
-                            Y_best_means = []
-                            for fac in factor_cols:
-                                tmp = pd.DataFrame({
-                                    fac: df_plan[fac].astype(str).values,
-                                    "Y":  df_effects[y_col].astype(float).values
-                                })
-                                g = tmp.groupby(fac, dropna=False)["Y"].mean().reset_index()
-                                vmax = float(g["Y"].max())
-                                Y_best_means.append(vmax)
-                    
-                            k = len(factor_cols)
-                            if k > 0 and not np.isnan(Y_bar) and not np.isnan(np.array(Y_best_means)).any():
-                                Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
+                                if k > 0 and not np.isnan(Y_bar) and not np.isnan(Y_best_means).any():
+                                    Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
+                                else:
+                                    Y_hat_taguchi = float("nan")
                             else:
+                                st.warning("Níveis ótimos ainda não calculados; gere a tabela antes.")
                                 Y_hat_taguchi = float("nan")
+                        except Exception as e:
+                            st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
+                            Y_hat_taguchi = float("nan")
                     
-                        # Card centralizado com o valor previsto de Y
+                        # Card (verde)
                         st.markdown(
                             f"""
                             <div style="text-align:center; margin: 14px 0 8px;">
-                              <div style="display:inline-block; padding:12px 22px; background:#f0f4ff;
+                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
                                           border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
-                                <div style="font-size:14px; color:#374151; font-weight:600; margin-bottom:4px;">
-                                  Valor previsto (Taguchi) — Resposta do Problema (Y)
+                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                                  Valor previsto (Taguchi) — {var_label}
                                 </div>
-                                <div style="font-size:26px; font-weight:700; color:#111827;">
+                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
                                   {("n/d" if np.isnan(Y_hat_taguchi) else f"{Y_hat_taguchi:.3f}")}
                                 </div>
                               </div>
@@ -835,21 +816,19 @@ if st.session_state.get('df_experimentos') is not None:
                     
                     # -------------------- COLUNA DIREITA: S/N --------------------
                     with colSN:
-                        st.markdown("**Estimativa da Relação Sinal-Ruído (S/N)**")
-                        st.latex(r"\hat{\eta}_{\text{Taguchi}} \;=\; \sum_{f=1}^{k} \bar{\eta}_{f,\ell^\star} \;-\; (k-1)\,\bar{\eta}")
-                        st.caption("Onde: $\\bar{\\eta}$ é a média global de S/N; "
-                                   "$\\bar{\\eta}_{f,\\ell^\\star}$ é a melhor média de S/N para o fator $f$; "
-                                   "$k$ é o nº de fatores.")
+                        st.markdown(f"**Estimativa da Relação Sinal-Ruído (S/N) — {var_label}**")
                     
-                        # Média global de S/N
                         try:
                             grand_mean = float(grand_mean)
                         except Exception:
                             grand_mean = float(df_effects[sn_col].mean())
                     
-                        # Usa as melhores médias por fator de S/N já calculadas (selected_level_means);
-                        # se não existir, calcula agora a partir das tabelas por fator:
-                        if 'selected_level_means' not in locals() or selected_level_means is None or len(selected_level_means) == 0:
+                        try:
+                            _needs_init = (not selected_level_means)
+                        except NameError:
+                            _needs_init = True
+                    
+                        if _needs_init:
                             selected_level_means = []
                             for fac in factor_cols:
                                 fac_df = per_factor_tables[fac]
@@ -865,14 +844,14 @@ if st.session_state.get('df_experimentos') is not None:
                         else:
                             eta_hat_taguchi = float("nan")
                     
-                        # Card centralizado com o S/N previsto
+                        # Card (verde)
                         st.markdown(
                             f"""
                             <div style="text-align:center; margin: 14px 0 8px;">
                               <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
                                           border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
                                 <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                                  S/N previsto (Taguchi Aditivo)
+                                  S/N previsto (Taguchi Aditivo) — {var_label}
                                 </div>
                                 <div style="font-size:26px; font-weight:700; color:#064e3b;">
                                   {("n/d" if np.isnan(eta_hat_taguchi) else f"{eta_hat_taguchi:.3f} dB")}
