@@ -673,123 +673,41 @@ if st.session_state.get('df_experimentos') is not None:
                         html_bytes = pio.to_html(fig_all, include_plotlyjs="cdn", full_html=False).encode("utf-8")
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
+                    
+                    st.subheader("🎯 Análise do Ponto Ótimo")
 
-                    st.subheader("🎯 Descrição do Ponto Ótimo")
-
-                    # --- Parâmetros de Taguchi e cálculo no ponto ótimo ---
-                    
-                    # 0) Coluna de S/N (garanta que 'sn_col' já esteja definido, ex.: sn_col = "S/N médio (dB)")
-                    assert sn_col in df_effects.columns, "sn_col não está presente em df_effects."
-                    
-                    # 1) grand_mean (sem vírgula no final!)
-                    try:
-                        grand_mean = float(grand_mean)
-                    except Exception:
-                        grand_mean = float(pd.to_numeric(df_effects[sn_col], errors="coerce").mean())
-                    
-                    # 2) Escolha da fonte do Y (se tiver um DF por ensaio, use-o)
-                    df_y_source = None
-                    for cand in ["df_experimentos", "df_niveis", "df_effects"]:
-                        if cand in st.session_state and isinstance(st.session_state[cand], pd.DataFrame):
-                            df_y_source = st.session_state[cand]
-                            break
-                    if df_y_source is None:
-                        df_y_source = df_effects  # fallback
-                    
-                    df_y = df_y_source.copy()
-                    
-                    # 3) Normalizar colunas potencialmente numéricas (coagir para número)
-                    def _coagir_numerico_col(s):
-                        # troca vírgula decimal e remove espaços
-                        return pd.to_numeric(
-                            s.astype(str).str.replace(",", ".", regex=False).str.strip(),
-                            errors="coerce"
-                        )
-                    
-                    for c in df_y.columns:
-                        if c.lower() not in {"experimento", "experimentos", "run", "ensaio", sn_col.lower()} and "s/n" not in c.lower():
-                            df_y[c] = _coagir_numerico_col(df_y[c])
-                    
-                    # 4) Selecionar y_col
-                    # 4.1) Prioriza var_label se existir
-                    y_col = None
-                    if isinstance(var_label, str):
-                        match_cols = [c for c in df_y.columns if c.lower() == var_label.lower()]
-                        if match_cols:
-                            y_col = match_cols[0]
-                    
-                    # 4.2) Se não achou por var_label, pega a primeira coluna numérica que não seja S/N
-                    if y_col is None:
-                        candidatos_y = []
-                        for c in df_y.columns:
-                            if c == sn_col: 
-                                continue
-                            if "s/n" in c.lower() or c.lower() in {"experimento", "experimentos", "run", "ensaio"}:
-                                continue
-                            # considera numérica se tiver pelo menos um valor não-NaN após coerção
-                            serie_num = _coagir_numerico_col(df_y[c])
-                            if serie_num.notna().any():
-                                candidatos_y.append(c)
-                        if len(candidatos_y) == 0:
-                            st.warning("Não há coluna numérica elegível para Y além do S/N.")
-                            y_col = None
-                        else:
-                            y_col = candidatos_y[0]
-                            st.info(f"📊 Coluna selecionada para cálculo de médias: **{y_col}**")
-                    
-                    # 5) Níveis ótimos por fator — Taguchi (S/N das réplicas)
+                    # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
                     opt_levels = {}
                     opt_rows = []
+                    selected_level_means = []
                     
                     for fac in factor_cols:
                         fac_df = per_factor_tables[fac]
-                    
                         if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                            opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan"), "Média de Y": float("nan")}
-                            opt_rows.append({
-                                "Fator": fac,
-                                "Nível(éis) ótimo(s)": "-",
-                                "S/N médio (dB)": float("nan"),
-                                f"Média de {var_label}": float("nan")
-                            })
+                            opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
+                            opt_rows.append({"Fator": fac, "Nível(éis) ótimo(s)": "-", "S/N médio (dB)": float("nan")})
+                            selected_level_means.append(float("nan"))
                             continue
                     
-                        vmax = float(pd.to_numeric(fac_df["S/N médio (dB)"], errors="coerce").max())
-                        optimal_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
+                        vmax = fac_df["S/N médio (dB)"].max()
+                        best_levels = (
+                            fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
+                            .astype(str)
+                            .tolist()
+                        )
                     
-                        # 5.1) Média de Y no(s) nível(eis) ótimo(s)
-                        mean_y_optimal = float("nan")
-                        if y_col is not None and optimal_levels:
-                            try:
-                                # garantir comparação por string
-                                mask = df_plan[fac].astype(str).isin([str(x) for x in optimal_levels])
-                                # pegar a mesma linha/índice no df_y
-                                y_vals = _coagir_numerico_col(df_y.loc[mask, y_col]).dropna()
-                                if len(y_vals) > 0:
-                                    mean_y_optimal = float(y_vals.mean())
-                            except Exception as e:
-                                st.warning(f"Erro ao calcular média de Y para fator {fac}: {e}")
-                                mean_y_optimal = float("nan")
-                    
-                        opt_levels[fac] = {"Níveis ótimos": optimal_levels, "S/N médio (dB)": vmax, "Média de Y": mean_y_optimal}
+                        opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
+                        selected_level_means.append(float(vmax))
                         opt_rows.append({
                             "Fator": fac,
-                            "Nível(éis) ótimo(s)": " / ".join(optimal_levels),
-                            "S/N médio (dB)": vmax,
-                            f"Média de {var_label}": mean_y_optimal
+                            "Nível(éis) ótimo(s)": " / ".join(best_levels),
+                            "S/N médio (dB)": float(vmax),
                         })
                     
-                    opt_table = pd.DataFrame(opt_rows)
-                    
-                    # 6) Ordenar e exibir
-                    if not opt_table.empty and "S/N médio (dB)" in opt_table.columns:
-                        opt_table = opt_table.sort_values("S/N médio (dB)", ascending=False)
-                    
                     st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
+                    opt_table = pd.DataFrame(opt_rows)
                     st.dataframe(opt_table, use_container_width=True, hide_index=True)
-
-                    
-                    
+                                        
                     st.download_button(
                         "📥 Baixar níveis ótimos (CSV)",
                         data=opt_table.to_csv(index=False).encode("utf-8"),
