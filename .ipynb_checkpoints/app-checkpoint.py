@@ -674,49 +674,80 @@ if st.session_state.get('df_experimentos') is not None:
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
                     
+                    
                     st.subheader("🎯 Análise do Ponto Ótimo")
-
+                    
                     # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
                     opt_levels = {}
                     opt_rows = []
                     selected_level_means = []
                     
+                    # PRIMEIRO: Precisamos da média da resposta (Y) no nível ótimo para cada fator
+                    # Junta os dados para calcular médias de Y por nível
+                    df_effects_y = df_plan.merge(
+                        df_res[['Experimento'] + num_cols],  # Pega todas as colunas numéricas (réplicas)
+                        on='Experimento', 
+                        how='left'
+                    )
+                    
+                    # Calcula média de Y para cada experimento (média das réplicas)
+                    df_effects_y['Media_Y'] = df_effects_y[num_cols].mean(axis=1)
+                    
                     for fac in factor_cols:
                         fac_df = per_factor_tables[fac]
                         if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
                             opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
-                            opt_rows.append({"Fator": fac, "Nível(éis) ótimo(s)": "-", "S/N médio (dB)": float("nan")})
-                            selected_level_means.append(float("nan"))
-                            continue
-                    
-                        vmax = fac_df["S/N médio (dB)"].max()
-                        best_levels = (
-                            fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
-                            .astype(str)
-                            .tolist()
-                        )
-                    
-                        opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
-                        selected_level_means.append(float(vmax))
+                            # NOVO: Calcula média de Y no nível ótimo (se disponível)
+                            media_y_otimo = float("nan")
+                        else:
+                            vmax = fac_df["S/N médio (dB)"].max()
+                            best_levels = (
+                                fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
+                                .astype(str)
+                                .tolist()
+                            )
+                            
+                            opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
+                            selected_level_means.append(float(vmax))
+                            
+                            # NOVO: Calcula a média de Y no nível ótimo
+                            # Pega o primeiro nível ótimo (se houver múltiplos, usa o primeiro)
+                            nivel_otimo = best_levels[0] if best_levels else None
+                            
+                            if nivel_otimo:
+                                # Filtra os experimentos com este nível ótimo e calcula média de Y
+                                mask = df_effects_y[fac] == nivel_otimo
+                                media_y_otimo = df_effects_y.loc[mask, 'Media_Y'].mean()
+                            else:
+                                media_y_otimo = float("nan")
+                        
+                        # Adiciona ao dataframe de resultados
                         opt_rows.append({
                             "Fator": fac,
-                            "Nível(éis) ótimo(s)": " / ".join(best_levels),
-                            "S/N médio (dB)": float(vmax),
+                            "Nível(éis) ótimo(s)": " / ".join(best_levels) if best_levels else "-",
+                            "S/N médio (dB)": float(vmax) if not fac_df.empty else float("nan"),
+                            # NOVA COLUNA: Média no Nível Ótimo
+                            f"Média de {var_label} no Nível Ótimo": media_y_otimo
                         })
                     
                     st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
                     opt_table = pd.DataFrame(opt_rows)
+                    
+                    # Formata a nova coluna para melhor visualização
+                    opt_table[f"Média de {var_label} no Nível Ótimo"] = opt_table[
+                        f"Média de {var_label} no Nível Ótimo"
+                    ].round(3)
+                    
                     st.dataframe(opt_table, use_container_width=True, hide_index=True)
-                                        
+                    
                     st.download_button(
                         "📥 Baixar níveis ótimos (CSV)",
                         data=opt_table.to_csv(index=False).encode("utf-8"),
                         file_name="ponto_otimo_taguchi.csv",
                         mime="text/csv",
                     )
-
-
-
+      
+    
 
                     st.subheader("🎯 Previsão do Desempenho Ótimo pelo Método Taguchi")
 
@@ -734,8 +765,8 @@ if st.session_state.get('df_experimentos') is not None:
                     - $k$ = número total de fatores
                     """)
 
-
-                    
+                
+              
 
                     st.subheader("🎯 Estimativa de valores")
                     # =========================================================
