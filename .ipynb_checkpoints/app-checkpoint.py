@@ -5,6 +5,9 @@ import math
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.io as pio
+import io
+from itertools import product
+from datetime import datetime
 
 # =============================================
 # Configuração
@@ -673,7 +676,166 @@ if st.session_state.get('df_experimentos') is not None:
                         html_bytes = pio.to_html(fig_all, include_plotlyjs="cdn", full_html=False).encode("utf-8")
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
+
+                     # ========= MODO 1: tudo no corpo principal (sem colunas externas) =========
+                    st.subheader("🧮 Ajuste do Modelo Preditivo (Efeitos Principais)")
+                    st.caption(
+                        "Use esta seção para estimar a resposta ou a razão S/N em qualquer combinação de fatores, "
+                        "mesmo que não esteja na matriz ortogonal."
+                    )
                     
+                    # ----------------- Seleção de níveis pelo usuário (vertical, corpo principal) -----------------
+                    user_levels = {}
+                    for fac in factor_cols:
+                        niveis = sorted(df_plan[fac].astype(str).unique())
+                        user_levels[fac] = st.selectbox(f"Nível para {fac}:", niveis, key=f"pred_{fac}")
+                    
+                    # ----------------- Cálculo das previsões -----------------
+                    # Y (usa média das réplicas por ensaio já calculada em mean_y)
+                    try:
+                        y_by_run = np.asarray(mean_y, dtype=float)
+                        Y_bar = float(np.nanmean(y_by_run))
+                        efeitos = []
+                        for fac in factor_cols:
+                            nivel = str(user_levels[fac])
+                            mask = (df_plan[fac].astype(str) == nivel).values
+                            media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                            efeitos.append(media_nivel - Y_bar)
+                        Y_hat = float(Y_bar + np.nansum(efeitos))
+                    except Exception as e:
+                        Y_hat = float("nan")
+                        st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
+                    
+                    # S/N (usa tabelas por fator; se faltar nível, faz fallback direto dos ensaios)
+                    try:
+                        sn_bar = float(df_effects[sn_col].mean())
+                        efeitos_sn = []
+                        for fac in factor_cols:
+                            nivel = str(user_levels[fac])
+                            fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                            media_sn = np.nan
+                            if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(set(fac_df.columns)):
+                                media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+                            if pd.isna(media_sn):  # fallback
+                                mask = (df_plan[fac].astype(str) == nivel)
+                                media_sn = float(df_effects.loc[mask, sn_col].mean())
+                            efeitos_sn.append(media_sn - sn_bar)
+                        eta_hat = float(sn_bar + np.nansum(efeitos_sn))
+                    except Exception as e:
+                        eta_hat = float("nan")
+                        st.warning(f"Não foi possível calcular a previsão de S/N: {e}")
+                    
+                    st.divider()
+                    
+                    # ----------------- Cards de resultados (mesmo estilo verde dos seus cards) -----------------
+                    st.markdown(
+                        f"""
+                        <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+                          <div style="min-width:280px; padding:12px 22px; background:#ecfdf5;
+                                      border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12); text-align:center;">
+                            <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                              Previsão para {var_label}
+                            </div>
+                            <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                              {('n/d' if np.isnan(Y_hat) else f'{Y_hat:.3f}')}
+                            </div>
+                          </div>
+                    
+                          <div style="min-width:280px; padding:12px 22px; background:#ecfdf5;
+                                      border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12); text-align:center;">
+                            <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                              Previsão para S/N (dB)
+                            </div>
+                            <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                              {('n/d' if np.isnan(eta_hat) else f'{eta_hat:.3f} dB')}
+                            </div>
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+
+                     # =========================
+                    # 📥 Exportações de predição (dois botões lado a lado)
+                    # =========================
+                    
+                    # --- helper: previsão para uma combinação arbitrária de níveis (dict fac->nivel em str)
+                    def _predict_combo(level_dict):
+                        # Y
+                        y_by_run = np.asarray(mean_y, dtype=float)
+                        Y_bar = float(np.nanmean(y_by_run))
+                        efeitos_y = []
+                        for fac in factor_cols:
+                            nivel = str(level_dict[fac])
+                            mask = (df_plan[fac].astype(str) == nivel).values
+                            media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                            efeitos_y.append(media_nivel - Y_bar)
+                        y_pred = float(Y_bar + np.nansum(efeitos_y))
+                    
+                        # S/N
+                        sn_bar = float(df_effects[sn_col].mean())
+                        efeitos_sn = []
+                        for fac in factor_cols:
+                            nivel = str(level_dict[fac])
+                            fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                            media_sn = np.nan
+                            if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                                media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+                            if pd.isna(media_sn):
+                                mask = (df_plan[fac].astype(str) == nivel)
+                                media_sn = float(df_effects.loc[mask, sn_col].mean())
+                            efeitos_sn.append(media_sn - sn_bar)
+                        eta_pred = float(sn_bar + np.nansum(efeitos_sn))
+                    
+                        return y_pred, eta_pred
+                    
+                    
+                    # ---------- (1) Ensaio atual ----------
+                    row_dict = {fac: user_levels[fac] for fac in factor_cols}
+                    y_pred_one, eta_pred_one = (Y_hat, eta_hat) if np.isfinite(Y_hat) and np.isfinite(eta_hat) else _predict_combo(row_dict)
+                    
+                    df_pred_one = pd.DataFrame([{
+                        **row_dict,
+                        f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred_one) else round(y_pred_one, 6)),
+                        "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred_one) else round(eta_pred_one, 6)),
+                    }])
+                    
+                    buf_one = io.StringIO()
+                    df_pred_one.to_csv(buf_one, index=False)
+                    fname_one = f"ensaio_predito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    
+                    # ---------- (2) Matriz fatorial completa ----------
+                    levels_map = {fac: sorted(df_plan[fac].astype(str).unique()) for fac in factor_cols}
+                    rows = []
+                    for combo in product(*[levels_map[fac] for fac in factor_cols]):
+                        combo_dict = {fac: level for fac, level in zip(factor_cols, combo)}
+                        y_pred, eta_pred = _predict_combo(combo_dict)
+                        rows.append({
+                            **combo_dict,
+                            f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred) else round(y_pred, 6)),
+                            "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred) else round(eta_pred, 6)),
+                        })
+                    
+                    df_full = pd.DataFrame(rows)
+                    buf_full = io.StringIO()
+                    df_full.to_csv(buf_full, index=False)
+                    fname_full = f"matriz_fatorial_predicoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    
+                    # ---------- Exibir botões em duas colunas ----------
+                    st.divider()
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        st.download_button("📥 Baixar ensaio (predição atual)", 
+                                           buf_one.getvalue().encode("utf-8"),
+                                           file_name=fname_one, mime="text/csv", key="dl_pred_one")
+                    
+                    with col_b2:
+                        st.download_button("📥 Baixar matriz fatorial completa (predições)", 
+                                           buf_full.getvalue().encode("utf-8"),
+                                           file_name=fname_full, mime="text/csv", key="dl_pred_full")
+                
                     
                     st.subheader("🎯 Análise do Ponto Ótimo")
                     
