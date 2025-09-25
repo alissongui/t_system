@@ -728,32 +728,44 @@ if st.session_state.get('df_experimentos') is not None:
                     st.divider()
                     
                     # ----------------- Cards de resultados (mesmo estilo verde dos seus cards) -----------------
-                    st.markdown(
-                        f"""
-                        <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
-                          <div style="min-width:280px; padding:12px 22px; background:#ecfdf5;
-                                      border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12); text-align:center;">
-                            <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                              Previsão para {var_label}
-                            </div>
-                            <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                              {('n/d' if np.isnan(Y_hat) else f'{Y_hat:.3f}')}
-                            </div>
-                          </div>
+                    col1, col2 = st.columns(2)
                     
-                          <div style="min-width:280px; padding:12px 22px; background:#ecfdf5;
-                                      border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12); text-align:center;">
-                            <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                              Previsão para S/N (dB)
+                    with col1:
+                        st.markdown(
+                            f"""
+                            <div style="text-align:center; margin: 14px 0 8px;">
+                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                                  Previsão para {var_label}
+                                </div>
+                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                                  {("n/d" if np.isnan(Y_hat) else f"{Y_hat:.3f}")}
+                                </div>
+                              </div>
                             </div>
-                            <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                              {('n/d' if np.isnan(eta_hat) else f'{eta_hat:.3f} dB')}
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    
+                    with col2:
+                        st.markdown(
+                            f"""
+                            <div style="text-align:center; margin: 14px 0 8px;">
+                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                                  Previsão para S/N (dB)
+                                </div>
+                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                                  {("n/d" if np.isnan(eta_hat) else f"{eta_hat:.3f} dB")}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
 
 
                      # =========================
@@ -931,28 +943,74 @@ if st.session_state.get('df_experimentos') is not None:
                     st.latex(r"\hat{Y}_{\text{prev}} \;=\; \left(\sum_{k=1}^{n}  \bar{Y}_{k,\ell^\star}\right) \;-\; (n-1)\,\bar{Y}")   
               
 
-                    st.subheader("🎯 Estimativa de valores")
+                    st.subheader("🎯 Estimativa de valores no ponto ótimo")
                     
+                    # ==============================
+                    # 🔹 Resumo do ponto ótimo (antes das caixas)
+                    # ==============================
+                    # Seleciona o(s) nível(is) ótimo(s) por fator a partir das tabelas por fator (S/N)
+                    opt_levels = {}
+                    selected_level_means = []  # S/N médio (dB) do nível ótimo por fator
+                    
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                        if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                            vmax = float(fac_df["S/N médio (dB)"].max())
+                            best_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
+                            # Pega o primeiro se houver empates (exibição)
+                            opt_levels[fac] = best_levels[0] if best_levels else "-"
+                            selected_level_means.append(vmax)
+                        else:
+                            opt_levels[fac] = "-"
+                            selected_level_means.append(np.nan)
+                    
+                    # Linha de título do ponto ótimo
+                    st.markdown("**Ponto ótimo (Taguchi, via S/N):**")
+                    
+                    # Render simples dos níveis ótimos em uma linha “chipada”
+                    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+                    for fac in factor_cols:
+                        chips_html += f"""
+                            <div style="padding:6px 12px; background:#ecfdf5;
+                                        border-radius:999px; font-size:13px; color:#064e3b;
+                                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels[fac]}
+                            </div>"""
+                    chips_html += "</div>"
+                    st.markdown(chips_html, unsafe_allow_html=True)
+                    
+                    st.divider()
+                    
+                    # ==============================
+                    # 🔹 Caixas (mantendo seu formato)
+                    # ==============================
                     colY, colSN = st.columns(2)
                     
-                    # -------------------- COLUNA ESQUERDA: Y --------------------
+                    # --------- COLUNA ESQUERDA: Y ---------
                     with colY:
-                        st.markdown(f"**Estimativa do Problema ({var_label})**")
-                    
                         try:
+                            # Preferência: usar a coluna "Média de {var_label} no Nível Ótimo" se já existir
                             col_media_otimo = f"Média de {var_label} no Nível Ótimo"
                             if 'opt_table' in locals() and col_media_otimo in opt_table.columns:
                                 Y_best_means = opt_table[col_media_otimo].to_numpy(dtype=float)
                                 k = len(Y_best_means)
-                    
-                                Y_bar = float(np.nanmean(mean_y)) if 'mean_y' in locals() else float('nan')
-                    
-                                if k > 0 and not np.isnan(Y_bar) and not np.isnan(Y_best_means).any():
-                                    Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
-                                else:
-                                    Y_hat_taguchi = float("nan")
                             else:
-                                st.warning("Níveis ótimos ainda não calculados; gere a tabela antes.")
+                                # Fallback: calcula média de Y no nível ótimo diretamente do plano
+                                y_by_run = np.asarray(mean_y, dtype=float)
+                                Y_best_means = []
+                                for fac in factor_cols:
+                                    nivel = str(opt_levels[fac])
+                                    if nivel == "-":
+                                        Y_best_means.append(np.nan)
+                                    else:
+                                        mask = (df_plan[fac].astype(str) == nivel).values
+                                        Y_best_means.append(float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan)
+                                k = len(factor_cols)
+                    
+                            Y_bar = float(np.nanmean(mean_y)) if 'mean_y' in locals() else float('nan')
+                            if k > 0 and not np.isnan(Y_bar) and not np.isnan(np.array(Y_best_means)).any():
+                                Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
+                            else:
                                 Y_hat_taguchi = float("nan")
                         except Exception as e:
                             st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
@@ -976,24 +1034,23 @@ if st.session_state.get('df_experimentos') is not None:
                             unsafe_allow_html=True,
                         )
                     
-                    # -------------------- COLUNA DIREITA: S/N --------------------
+                    # --------- COLUNA DIREITA: S/N ---------
                     with colSN:
-                        st.markdown(f"**Estimativa da Relação Sinal-Ruído (S/N) — {var_label}**")
-                    
+                        # grand_mean (S/N)
                         try:
                             grand_mean = float(grand_mean)
                         except Exception:
                             grand_mean = float(df_effects[sn_col].mean())
                     
+                        # Garante selected_level_means (S/N por fator no nível ótimo)
                         try:
-                            _needs_init = (not selected_level_means)
+                            needs_init = (not selected_level_means)
                         except NameError:
-                            _needs_init = True
-                    
-                        if _needs_init:
+                            needs_init = True
+                        if needs_init:
                             selected_level_means = []
                             for fac in factor_cols:
-                                fac_df = per_factor_tables[fac]
+                                fac_df = per_factor_tables.get(fac, pd.DataFrame())
                                 if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
                                     selected_level_means.append(float("nan"))
                                 else:
@@ -1023,6 +1080,32 @@ if st.session_state.get('df_experimentos') is not None:
                             """,
                             unsafe_allow_html=True,
                         )
+                    
+                    st.divider()
+                    
+                    # ==============================
+                    # 🔹 Baixar ponto ótimo com estimativas
+                    # ==============================
+                    
+                    # DataFrame com: níveis ótimos por fator + estimativas globais
+                    row = {fac: opt_levels[fac] for fac in factor_cols}
+                    row.update({
+                        f"Previsão {var_label}": (np.nan if np.isnan(Y_hat_taguchi) else round(Y_hat_taguchi, 6)),
+                        "Previsão S/N (dB)": (np.nan if np.isnan(eta_hat_taguchi) else round(eta_hat_taguchi, 6)),
+                    })
+                    
+                    df_opt_export = pd.DataFrame([row])
+                    buf_opt = io.StringIO()
+                    df_opt_export.to_csv(buf_opt, index=False)
+                    fname_opt = f"ponto_otimo_estimada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    
+                    st.download_button(
+                        "📥 Baixar ponto ótimo com estimativas",
+                        data=buf_opt.getvalue().encode("utf-8"),
+                        file_name=fname_opt,
+                        mime="text/csv",
+                        key="dl_opt_estimates"
+                    )
 
 
         
