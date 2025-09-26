@@ -676,7 +676,111 @@ if st.session_state.get('df_experimentos') is not None:
                         html_bytes = pio.to_html(fig_all, include_plotlyjs="cdn", full_html=False).encode("utf-8")
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
+                    # ================================================================
+                    # 📊 Observado × Predito — em duas tabelas (Y) e (S/N)
+                    # ================================================================
+                    st.subheader("📊 Observado × Predito (por ensaio)")
+                    st.caption("Com base nas médias por ensaio: predições do modelo aditivo e resíduos.")
+                    
+                    # ---------- Preparos ----------
+                    n_factors = len(factor_cols)
+                    
+                    # Vetores por ensaio
+                    y_by_run = np.asarray(mean_y, dtype=float)                          # média das réplicas (Y observado)
+                    sn_by_run = df_effects[sn_col].astype(float).to_numpy()             # S/N observado (dB)
+                    
+                    Y_bar  = float(np.nanmean(y_by_run))
+                    SN_bar = float(np.nanmean(sn_by_run))
+                    
+                    # Médias por nível (Y)
+                    tmp_y = df_plan.copy()
+                    tmp_y["__mean_y__"] = y_by_run
+                    mean_y_level = {fac: tmp_y.groupby(df_plan[fac].astype(str))["__mean_y__"].mean().to_dict()
+                                    for fac in factor_cols}
+                    
+                    # Médias por nível (S/N) — usa tabelas por fator; fallback por ensaios
+                    mean_sn_level = {}
+                    for fac in factor_cols:
+                        d = {}
+                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                        if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                            d.update(dict(zip(fac_df["Nível"].astype(str), fac_df["S/N médio (dB)"].astype(float))))
+                        # garante todos os níveis existentes no plano
+                        for lvl in df_plan[fac].astype(str).unique():
+                            if lvl not in d:
+                                mask = (df_plan[fac].astype(str) == lvl)
+                                d[lvl] = float(df_effects.loc[mask, sn_col].mean())
+                        mean_sn_level[fac] = d
+                    
+                    # ---------- Monta TABELA 1: Y ----------
+                    rows_y = []
+                    for i in range(len(df_plan)):
+                        lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
+                        sum_levels_y = sum(float(mean_y_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
+                        y_pred = float(sum_levels_y - (n_factors - 1) * Y_bar)
+                        rows_y.append({
+                            **lvl_dict,
+                            "Y observado": y_by_run[i],
+                            "Y predito": y_pred,
+                            "Resíduo Y": y_by_run[i] - y_pred,
+                        })
+                    df_obs_pred_y = pd.DataFrame(rows_y)
+                    
+                    st.markdown("**Resposta do Problema (Y):**")
+                    st.dataframe(
+                        df_obs_pred_y.round({"Y observado":3, "Y predito":3, "Resíduo Y":3}),
+                        use_container_width=True, hide_index=True
+                    )
+                    
+                    # Download Y
+                    import io
+                    from datetime import datetime
+                    buf_y = io.StringIO()
+                    df_obs_pred_y.to_csv(buf_y, index=False)
+                    st.download_button(
+                        "📥 Baixar tabela Y (CSV)",
+                        data=buf_y.getvalue().encode("utf-8"),
+                        file_name=f"observado_predito_residuo_Y_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="dl_obs_pred_Y"
+                    )
+                    
+                    st.divider()
+                    
+                    # ---------- Monta TABELA 2: S/N ----------
+                    rows_sn = []
+                    for i in range(len(df_plan)):
+                        lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
+                        sum_levels_sn = sum(float(mean_sn_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
+                        sn_pred = float(sum_levels_sn - (n_factors - 1) * SN_bar)
+                        rows_sn.append({
+                            **lvl_dict,
+                            "S/N observado (dB)": sn_by_run[i],
+                            "S/N predito (dB)": sn_pred,
+                            "Resíduo S/N (dB)": sn_by_run[i] - sn_pred,
+                        })
+                    df_obs_pred_sn = pd.DataFrame(rows_sn)
+                    
+                    st.markdown("**Relação Sinal-Ruído (S/N):**")
+                    st.dataframe(
+                        df_obs_pred_sn.round({"S/N observado (dB)":3, "S/N predito (dB)":3, "Resíduo S/N (dB)":3}),
+                        use_container_width=True, hide_index=True
+                    )
+                    
+                    # Download S/N
+                    buf_sn = io.StringIO()
+                    df_obs_pred_sn.to_csv(buf_sn, index=False)
+                    st.download_button(
+                        "📥 Baixar tabela S/N (CSV)",
+                        data=buf_sn.getvalue().encode("utf-8"),
+                        file_name=f"observado_predito_residuo_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="dl_obs_pred_SN"
+                    )
+                    
+                    st.divider()
 
+                    
                      # ========= MODO 1: tudo no corpo principal (sem colunas externas) =========
                     st.subheader("🧮 Ajuste do Modelo Preditivo (Efeitos Principais)")
                     st.caption(
