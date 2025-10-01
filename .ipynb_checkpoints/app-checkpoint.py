@@ -430,14 +430,14 @@ if st.session_state.get('df_experimentos') is not None:
 
                     st.markdown(r"""
                     O **efeito** de um nível $\ell$ do fator $k$ quantifica a variação da resposta média de S/N quando o fator $k$ é fixando nesse nível, em comparação com a média global de S/N do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
-                    define-se o efeito como a diferença entre a média de S/N nesse nível e a média global de S/N.
+                    define-se o efeito como a diferença entre a média de S/N nesse nível e a média global de S/N:
                     """)
                     
                     st.latex(r"\text{Efeito}(k,\ell) = \overline{S/N}_{k,\ell} - \overline{S/N}_{\text{global}}")
                     
                     st.markdown(r"""
-                    **em que:**  
-                    • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão), sendo $K$ o número total de fatores. 
+                    **em que,**  
+                    • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão, ...), sendo $K$ o número total de fatores. 
                     
                     • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ número de níveis do fator $k$.  
                     • $\overline{S/N}_{k,\ell}$: média de S/N somente nas corridas onde o fator $k$ está no nível $\ell$.  
@@ -504,6 +504,96 @@ if st.session_state.get('df_experimentos') is not None:
                             with cols[j]:
                                 st.markdown(f"**Fator: {fac}**")
                                 st.dataframe(per_factor_tables[fac], use_container_width=True, hide_index=True)
+
+
+                    # =============================================
+                    # 📐 Cálculo do Δ (amplitude por fator)
+                    # =============================================
+                    st.markdown("---")
+                    st.subheader("📐 Cálculo do Δ (amplitude por fator)")
+                    
+                    st.markdown(
+                        """
+                        Para cada **fator** \(k\), define-se o **Delta** (\(\Delta_k\)) como a amplitude de variação da razão S/N
+                        entre seus níveis — isto é, a diferença entre o maior e o menor valor médio de S/N obtidos ao variar os níveis do fator \(k\).
+                        """
+                    )
+                    st.latex(r"\Delta_k \;=\; \max_{\ell}\,\overline{\mathrm{S/N}}_{k,\ell}\;-\;\min_{\ell}\,\overline{\mathrm{S/N}}_{k,\ell}")
+                    st.markdown(
+                        """
+                        **Interpretação.** Quanto maior \(\Delta_k\), maior a influência do fator \(k\) na resposta: o fator produz
+                        uma variação mais ampla da razão S/N quando se percorrem seus níveis.
+                        """
+                    )
+                    
+                    # --- Construção da tabela de Δ por fator (reutiliza per_factor_tables e grand_mean) ---
+                    delta_rows = []
+                    for fac, fac_df in per_factor_tables.items():
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            delta_rows.append({
+                                "Fator": fac,
+                                "Nível ótimo": "-",
+                                "S/N no nível ótimo (dB)": float("nan"),
+                                "Pior nível": "-",
+                                "S/N no pior nível (dB)": float("nan"),
+                                "Δ (dB)": float("nan"),
+                                "Efeito no nível ótimo (dB)": float("nan"),
+                            })
+                            continue
+                    
+                        # Máximo e mínimo de S/N médio
+                        vmax = float(fac_df["S/N médio (dB)"].max())
+                        vmin = float(fac_df["S/N médio (dB)"].min())
+                        lvl_max = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
+                        lvl_min = fac_df.loc[fac_df["S/N médio (dB)"] == vmin, "Nível"].iloc[0]
+                        delta = vmax - vmin
+                    
+                        # Efeito do nível ótimo (se a coluna existir; caso não, calcula em relação à média global)
+                        if "Efeito (dB)" in fac_df.columns:
+                            eff_best = float(fac_df.loc[fac_df["Nível"] == lvl_max, "Efeito (dB)"].iloc[0])
+                        else:
+                            eff_best = vmax - float(grand_mean)
+                    
+                        delta_rows.append({
+                            "Fator": fac,
+                            "Nível ótimo": lvl_max,
+                            "S/N no nível ótimo (dB)": round(vmax, 3),
+                            "Pior nível": lvl_min,
+                            "S/N no pior nível (dB)": round(vmin, 3),
+                            "Δ (dB)": round(delta, 3),
+                            "Efeito no nível ótimo (dB)": round(eff_best, 3),
+                        })
+                    
+                    delta_df = (
+                        pd.DataFrame(delta_rows)
+                        .sort_values("Δ (dB)", ascending=False, na_position="last")
+                        .reset_index(drop=True)
+                    )
+                    delta_df["Rank (Δ)"] = np.arange(1, len(delta_df) + 1)
+                    
+                    st.markdown("🔎 **Δ por fator (amplitude e nível ótimo)**")
+                    st.dataframe(delta_df, use_container_width=True, hide_index=True)
+                    
+                    # Opcional: contribuição relativa do Δ (% do total de Δ)
+                    if delta_df["Δ (dB)"].notna().any():
+                        total_delta = delta_df["Δ (dB)"].sum(skipna=True)
+                        if total_delta and total_delta > 0:
+                            delta_df["Contribuição do Δ (%)"] = (delta_df["Δ (dB)"] / total_delta * 100.0).round(1)
+                            st.caption("ℹ️ A coluna **Contribuição do Δ (%)** mostra a participação de cada fator no total de Δ (normalização pela soma dos Δ).")
+                            # reexibir com a nova coluna
+                            st.dataframe(delta_df, use_container_width=True, hide_index=True)
+                    
+                    # Download (CSV)
+                    buf_delta = io.StringIO()
+                    delta_df.to_csv(buf_delta, index=False)
+                    st.download_button(
+                        "📥 Baixar Δ por fator (CSV)",
+                        data=buf_delta.getvalue().encode("utf-8"),
+                        file_name=f"delta_por_fator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="dl_delta_fator_csv",
+                    )
+
                     
                     # Sumário com Melhor nível, Delta e ranking (usando S/N médio)
                     summary_rows = []
