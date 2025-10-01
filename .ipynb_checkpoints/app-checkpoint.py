@@ -350,6 +350,7 @@ if st.session_state.get('df_experimentos') is not None:
                     st.success("✅ Número de experimentos confere com a matriz experimental!")
                     st.success("✅ Arquivo de resultados carregado com sucesso!")
                     st.dataframe(df_res, use_container_width=True, hide_index=True)
+                    st.markdown("---")
 
                     # Merge e arrays
                     df_join = pd.merge(df_plan, df_res, on='Experimento', how='left')
@@ -422,7 +423,29 @@ if st.session_state.get('df_experimentos') is not None:
                     # =============================================
                     # Efeitos médios dos fatores (S/N das réplicas) — Tabelas separadas
                     # =============================================
+                    st.markdown("---")
                     st.subheader("📈 Efeitos médios dos fatores (S/N das réplicas)")
+
+
+
+                    st.markdown(r"""
+                    O **efeito** de um nível $\ell$ do fator $k$ quantifica a variação da resposta média de S/N quando o fator $k$ é fixando nesse nível, em comparação com a média global de S/N do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
+                    define-se o efeito como a diferença entre a média de S/N nesse nível e a média global de S/N.
+                    """)
+                    
+                    st.latex(r"\text{Efeito}(k,\ell) = \overline{S/N}_{k,\ell} - \overline{S/N}_{\text{global}}")
+                    
+                    st.markdown(r"""
+                    **em que:**  
+                    • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão), sendo $K$ o número total de fatores. 
+                    
+                    • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ número de níveis do fator $k$.  
+                    • $\overline{S/N}_{k,\ell}$: média de S/N somente nas corridas onde o fator $k$ está no nível $\ell$.  
+                    • $\overline{S/N}_{\text{global}}$: média de S/N considerando todas as corridas do experimento.
+                    """)
+
+
+
                     
                     # Junta plano + S/N das réplicas
                     df_effects = df_plan.merge(
@@ -440,37 +463,70 @@ if st.session_state.get('df_experimentos') is not None:
                         fac_df = pd.DataFrame({"Nível": g.index, "S/N médio (dB)": g.values})
                         per_factor_tables[fac] = fac_df
                     
-                    st.markdown("🔍 Tabelas por fator (S/N médio por nível)")
 
-                    COLS_PER_ROW = 4  # ajuste para 2, 3, ou 4 conforme preferir
+                    st.markdown("🔍 Tabelas por fator (S/N médio por nível)")
                     
+                    factor_cols = [c for c in df_plan.columns if c != "Experimento"]
+                    per_factor_tables = {}
+                    
+                    for fac in factor_cols:
+                        # níveis como string, mas ordenados naturalmente (1,2,3,...)
+                        lvls_in_plan = df_plan[fac].astype(str).unique().tolist()
+                        try:
+                            order_nat = sorted(lvls_in_plan, key=lambda s: int(s))
+                        except Exception:
+                            order_nat = sorted(lvls_in_plan)
+                    
+                        g = (
+                            df_effects
+                            .assign(**{fac: df_effects[fac].astype(str)})
+                            .groupby(fac, as_index=True)[sn_col]
+                            .mean()
+                            .reindex(order_nat)
+                        )
+                        fac_df = (
+                            pd.DataFrame({"Nível": g.index, "S/N médio (dB)": g.values})
+                            .reset_index(drop=True)
+                        )
+                        # tipos, arredondamento e NOVA COLUNA: Efeito (dB)
+                        fac_df["S/N médio (dB)"] = pd.to_numeric(fac_df["S/N médio (dB)"], errors="coerce")
+                        fac_df["Efeito (dB)"] = (fac_df["S/N médio (dB)"] - float(grand_mean))
+                        fac_df[["S/N médio (dB)", "Efeito (dB)"]] = fac_df[["S/N médio (dB)", "Efeito (dB)"]].round(3)
+                    
+                        per_factor_tables[fac] = fac_df
+                    
+                    # render (até 4 por linha)
+                    COLS_PER_ROW = 4
                     for i in range(0, len(factor_cols), COLS_PER_ROW):
-                        # pega o “bloco” de até 4 fatores
                         bloco = factor_cols[i:i + COLS_PER_ROW]
                         cols = st.columns(len(bloco))
                         for j, fac in enumerate(bloco):
                             with cols[j]:
                                 st.markdown(f"**Fator: {fac}**")
                                 st.dataframe(per_factor_tables[fac], use_container_width=True, hide_index=True)
-
                     
-                    # 2) Sumário: melhor nível, Delta e ranking
+                    # Sumário com Melhor nível, Delta e ranking (usando S/N médio)
                     summary_rows = []
                     for fac, fac_df in per_factor_tables.items():
-                        if fac_df.empty:
-                            best_lvl = np.nan; delta = np.nan
-                        else:
-                            vmax = fac_df["S/N médio (dB)"].max()
-                            vmin = fac_df["S/N médio (dB)"].min()
-                            best_lvl = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
-                            delta = float(vmax - vmin)
-                        summary_rows.append({"Fator": fac, "Melhor nível": best_lvl, "Delta (dB)": delta})
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            summary_rows.append({"Fator": fac, "Melhor nível": "-", "Delta (dB)": float("nan")})
+                            continue
+                        vmax = fac_df["S/N médio (dB)"].max()
+                        vmin = fac_df["S/N médio (dB)"].min()
+                        best_lvl = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
+                        delta = float(vmax - vmin)
+                        summary_rows.append({"Fator": fac, "Melhor nível": best_lvl, "Delta (dB)": round(delta, 3)})
                     
-                    summary_df = pd.DataFrame(summary_rows).sort_values("Delta (dB)", ascending=False).reset_index(drop=True)
+                    summary_df = (
+                        pd.DataFrame(summary_rows)
+                        .sort_values("Delta (dB)", ascending=False, na_position="last")
+                        .reset_index(drop=True)
+                    )
                     summary_df["Rank (Delta)"] = np.arange(1, len(summary_df) + 1)
                     
                     st.markdown("🔍 Sumário (melhor nível, Delta e ranking)")
                     st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
                     
                     # 3) Downloads
                     colA, colB = st.columns(2)
