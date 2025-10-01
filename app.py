@@ -253,17 +253,6 @@ if upl:
 
                             st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
 
-                            # Download CSV
-                            @st.cache_data
-                            def convert_df_to_csv(df):
-                                return df.to_csv(index=False, sep=';').encode('utf-8')
-                            csv = convert_df_to_csv(df_niveis)
-                            st.download_button(
-                                label="📥 Baixar Matriz Experimental (CSV)",
-                                data=csv,
-                                file_name=f"matriz_experimental_{matriz_selecionada}.csv",
-                                mime="text/csv",
-                            )
                     except Exception as e:
                         st.error(f"❌ Erro ao gerar a matriz: {str(e)}")
             else:
@@ -276,10 +265,22 @@ if upl:
 # =========================
 if st.session_state.get('df_experimentos') is not None:
     df_plan = st.session_state['df_experimentos']
-    st.markdown("---")
     st.subheader("📊 Matriz Experimental Gerada")
     st.dataframe(df_plan, use_container_width=True, hide_index=True)
 
+    # Download CSV
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False, sep=';').encode('utf-8')
+    csv = convert_df_to_csv(df_plan)
+    st.download_button(
+        label="📥 Baixar Matriz Experimental (CSV)",
+        data=csv,
+        file_name=f"matriz_experimental_{matriz_selecionada}.csv",
+        mime="text/csv",
+    )
+
+    st.markdown("---")
     st.subheader("📤 Upload de Resultados Experimentais")
     var_label = st.session_state.get('var_label', 'Variável de Interesse')
 
