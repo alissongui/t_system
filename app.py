@@ -424,28 +424,30 @@ if st.session_state.get('df_experimentos') is not None:
                     # Efeitos médios dos fatores (S/N das réplicas) — Tabelas separadas
                     # =============================================
                     st.markdown("---")
-                    st.subheader("📈 Efeitos médios dos fatores (S/N das réplicas)")
+                    st.subheader("📈 Efeitos principais na razão S/N (médias por nível)")
 
-
-
-                    st.markdown(r"""
-                    O **efeito** de um nível $\ell$ do fator $k$ quantifica a variação da resposta média de S/N quando o fator $k$ é fixando nesse nível, em comparação com a média global de S/N do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
+                    if st.toggle("O que é o 'efeito' (clique para ver)", value=False, key="show_efeito"):
+                        st.markdown(
+                            r"""
+                            O **efeito** de um nível $\ell$ do fator $k$ quantifica a variação da resposta média de S/N quando o fator $k$ é fixado nesse nível, em comparação com a média global de S/N do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
                     define-se o efeito como a diferença entre a média de S/N nesse nível e a média global de S/N:
-                    """)
+                            """
+                        )
+                        st.latex(r"\text{Efeito}(k,\ell)=\overline{\mathrm{S/N}}_{k,\ell}-\overline{\mathrm{S/N}}_{\text{global}}")
+                        st.markdown(
+                            r"""
+                            **em que,**  
+                            • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão, ...), sendo $K$ o número total de fatores.  
+                            
+                            • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ o número de níveis do fator $k$. 
+                            
+                            • $\overline{\mathrm{S/N}}_{k,\ell}$: média de $\mathrm{S/N}$ somente nas corridas onde o fator $k$ está no nível $\ell$.
+                            
+                            • $\overline{\mathrm{S/N}}_{\text{global}}$: média de $\mathrm{S/N}$ considerando todas as corridas do experimento.
+                            """
+                        )
                     
-                    st.latex(r"\text{Efeito}(k,\ell) = \overline{S/N}_{k,\ell} - \overline{S/N}_{\text{global}}")
-                    
-                    st.markdown(r"""
-                    **em que,**  
-                    • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão, ...), sendo $K$ o número total de fatores. 
-                    
-                    • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ número de níveis do fator $k$.  
-                    • $\overline{S/N}_{k,\ell}$: média de S/N somente nas corridas onde o fator $k$ está no nível $\ell$.  
-                    • $\overline{S/N}_{\text{global}}$: média de S/N considerando todas as corridas do experimento.
-                    """)
-
-
-
+                    st.markdown("---")
                     
                     # Junta plano + S/N das réplicas
                     df_effects = df_plan.merge(
@@ -505,7 +507,29 @@ if st.session_state.get('df_experimentos') is not None:
                                 st.markdown(f"**Fator: {fac}**")
                                 st.dataframe(per_factor_tables[fac], use_container_width=True, hide_index=True)
 
+                        # ============================
+                        # 📥 Baixar tabelas por fator (CSV único)
+                        # ============================
+                        if per_factor_tables:
+                            # Empilha todas as tabelas e inclui a coluna "Fator"
+                            df_emp = pd.concat(
+                                [df.assign(**{"Fator": fac}) for fac, df in per_factor_tables.items()],
+                                ignore_index=True
+                            )
+                            st.download_button(
+                                "📥 Baixar tabelas por fator (CSV)",
+                                data=df_emp.to_csv(index=False).encode("utf-8"),
+                                file_name=f"tabelas_SN_por_fator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                key="dl_tabelas_sn_csv",
+                                help="Todas as tabelas empilhadas em um único CSV."
+                            )
+                        else:
+                            st.info("Nenhuma tabela por fator disponível para download.")
 
+
+
+                    
                     # =============================================
                     # 📐 Cálculo do Δ (amplitude por fator)
                     # =============================================
