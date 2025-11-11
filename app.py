@@ -12,9 +12,16 @@ from datetime import datetime
 # =============================================
 # Configuração
 # =============================================
-st.set_page_config(page_title="Plano Experimental Taguchi", layout="wide")
-st.title("Plano Experimental Taguchi")
-st.caption("Até: upload de fatores, recomendação/geração de OA, upload de resultados, S/N e **Resultado por ensaio**. (Sem análises adicionais — aguardando comandos.)")
+st.set_page_config(page_title="Taguchi App", layout="wide")
+st.title("Taguchi App")
+st.caption(
+    """
+    <div style="font-size:16px; font-weight:bold;">
+        Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.01<br><br>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # --- Estado do fluxo (wizard) ---
 if 'step' not in st.session_state:
@@ -281,12 +288,12 @@ if st.session_state.get('df_experimentos') is not None:
     )
 
     st.markdown("---")
-    st.subheader("📤 Upload de Resultados Experimentais")
+    st.subheader("📤 Upload de Resultados Experimentais (Réplicas/triplicatas)")
     var_label = st.session_state.get('var_label', 'Variável de Interesse')
 
     # Tipo de razão S/N
     sn_tipo = st.selectbox(
-        "Tipo de razão S/N (Taguchi)",
+        "Tipo de razão Sinal-Ruído (S/N) (Taguchi)",
         options=["Maior é melhor", "Menor é melhor", "Nominal é melhor"],
         index=0,
     )
@@ -300,11 +307,11 @@ if st.session_state.get('df_experimentos') is not None:
         "Menor é melhor": r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
         "Nominal é melhor":   r"S/N = 10 \log_{10} \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
     }
-    st.markdown("**Fórmula S/N selecionada:**")
+    st.markdown("**Fórmula da Razão Sinal-Ruído (S/N) selecionada:**")
     st.latex(sn_formulas[sn_tipo])
 
     result_upl = st.file_uploader(
-        "**Carregar arquivo de resultados**",
+        "**Carregar arquivo de resultados (réplicas do experimento)**",
         type=["xlsx", "csv"],
         key="resultados_upl",
     )
@@ -426,11 +433,11 @@ if st.session_state.get('df_experimentos') is not None:
                     st.markdown("---")
                     st.subheader("📈 Efeitos principais na razão S/N (médias por nível)")
                     
-                    if st.toggle("🔵 O que é o 'efeito'? (clique para ver) 🔵", value=False, key="show_efeito"):
+                    if st.toggle("🔴🔴🔴 O que é o 'efeito'? (clique para ver) 🔴🔴🔴", value=False, key="show_efeito"):
                         st.markdown(
                             r"""
-                            O **efeito** de um nível $\ell$ do fator $k$ quantifica a variação da resposta média de S/N quando o fator $k$ é fixado nesse nível, em comparação com a média global de S/N do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
-                    define-se o efeito como a diferença entre a média de S/N nesse nível e a média global de S/N:
+                            O **efeito** de um fator $k$ no nível $\ell$ é definido como o desvio da resposta média da razão Sinal-Ruído (S/N), obtida nesse nível específico, em relação à média global do experimento. Em outros termos, para cada **fator** denotado por $k$ e cada **nível** $\ell$ desse fator, 
+                    define-se o efeito como a diferença entre a média de S/N nesse nível e a média global:
                             """
                         )
                         st.latex(r"\text{Efeito}(k,\ell)=\overline{\mathrm{S/N}}_{k,\ell}-\overline{\mathrm{S/N}}_{\text{global}}")
@@ -439,11 +446,11 @@ if st.session_state.get('df_experimentos') is not None:
                             **em que,**  
                             • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão, ...), sendo $K$ o número total de fatores.  
                             
-                            • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ o número de níveis do fator $k$. 
+                            • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$, sendo $L_k$ o número de níveis do respectivo fator. 
                             
-                            • $\overline{\mathrm{S/N}}_{k,\ell}$: média de $\mathrm{S/N}$ somente nas corridas onde o fator $k$ está no nível $\ell$.
+                            • $\overline{\mathrm{S/N}}_{k,\ell}$:$\:\:\:$    média da razão Sinal-Ruído considerando apenas os ensaios em que o fator $k$ foi fixado no nível $\ell$.
                             
-                            • $\overline{\mathrm{S/N}}_{\text{global}}$: média de $\mathrm{S/N}$ considerando todas as corridas do experimento.
+                            • $\overline{\mathrm{S/N}}_{\text{global}}$:$\:\:$    média da razão Sinal-Ruído considerando todos os ensaios do experimento.
                             """
                         )
                     
