@@ -842,9 +842,31 @@ if st.session_state.get('df_experimentos') is not None:
             # ================================================================
             # 📊 Observado × Predito — em duas tabelas (Y) e (S/N)
             # ================================================================
-            st.subheader("📊 Observado × Predito (por ensaio)")
-            st.caption("Com base nas médias por ensaio: predições do modelo aditivo e resíduos.")
+            st.subheader("📊 Valor médio observado versus valor médio predito (por ensaio)")
+            st.caption("As estimativas são calculadas usando a média das réplicas de cada ensaio e o modelo aditivo de efeitos principais. Os resíduos correspondem à diferença entre o valor médio observado e o valor médio predito.")
 
+            if st.toggle("🔴🔴🔴 Como é calculado o valor predito? (clique para ver) 🔴🔴🔴", value=False, key="show_pred"):
+                        st.markdown(r"""
+                        O valor **predito** para cada ensaio é obtido pelo **modelo aditivo de efeitos principais**, cujo resultado é dado por:
+                        """
+                                   )
+                        st.latex(r"\hat{Y}_\ell \;=\; \bar{Y} \;+\; \sum_{j=1}^{K} \text{Efeito}(j,\ell)")
+
+                        st.markdown(
+                            r"""
+                            **em que,**  
+                            •  $\hat{Y}_\ell$ é a resposta predita para a combinação de níveis $\ell$;
+                            
+                            • $\bar{Y}$ é a média global da resposta;
+                            
+                            • $\text{Efeito}(j,\ell)$ é o efeito principal do fator $j$ no nível selecionado;
+                            
+                            • $K$ é o número total de fatores.
+                            """
+                        )
+
+
+            st.markdown("---") 
             # ---------- Preparos ----------
             n_factors = len(factor_cols)
 
