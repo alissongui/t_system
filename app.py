@@ -911,7 +911,7 @@ if st.session_state.get('df_experimentos') is not None:
                 })
             df_obs_pred_y = pd.DataFrame(rows_y)
 
-            st.markdown("**Resposta do Problema (Y):**")
+            st.markdown("🔍 Tabela de predições ao problema (Y)")
             st.dataframe(
                 df_obs_pred_y.round({"Y observado":3, "Y predito":3, "Resíduo Y":3}),
                 use_container_width=True, hide_index=True
@@ -946,7 +946,7 @@ if st.session_state.get('df_experimentos') is not None:
                 })
             df_obs_pred_sn = pd.DataFrame(rows_sn)
 
-            st.markdown("**Relação Sinal-Ruído (S/N):**")
+            st.markdown("🔍 Tabela de predições em relação a razão Sinal-Ruído")
             st.dataframe(
                 df_obs_pred_sn.round({"S/N observado (dB)":3, "S/N predito (dB)":3, "Resíduo S/N (dB)":3}),
                 use_container_width=True, hide_index=True
@@ -967,7 +967,7 @@ if st.session_state.get('df_experimentos') is not None:
 
 
              # ========= MODO 1: tudo no corpo principal (sem colunas externas) =========
-            st.subheader("🧮 Ajuste do Modelo Preditivo (Efeitos Principais)")
+            st.subheader("🧮 Predição de valores para qualquer combinação de fatores")
             st.caption(
                 "Use esta seção para estimar a resposta ou a razão S/N em qualquer combinação de fatores, "
                 "mesmo que não esteja na matriz ortogonal."
@@ -1137,7 +1137,7 @@ if st.session_state.get('df_experimentos') is not None:
                                    buf_full.getvalue().encode("utf-8"),
                                    file_name=fname_full, mime="text/csv", key="dl_pred_full")
 
-
+            st.markdown("---")
             st.subheader("🎯 Análise do Ponto Ótimo")
 
             # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
@@ -1209,29 +1209,8 @@ if st.session_state.get('df_experimentos') is not None:
                 file_name="ponto_otimo_taguchi.csv",
                 mime="text/csv",
             )
-
-
-
-            st.subheader("📄 Previsão do Desempenho Ótimo pelo Método Taguchi")
-
-            st.markdown("**Modelo aditivo (visão geral):**")
-            st.latex(r"\hat{Y}_{\text{prev}} \;=\; \bar{Y} \;+\; \sum_{k=1}^{n} \;\text{Efeito}_{k,\ell^\star}")
-
-            st.markdown("**Definição do efeito (por fator no nível ótimo):**")
-            st.latex(r"\text{Efeito}_{k,\ell^\star} \;=\; \bar{Y}_{k,\ell^\star} \;-\; \bar{Y}")
-
-            st.markdown(r"""
-            **Onde:**
-            - `Y_previsto` ($\hat{Y}_{\text{prev}}$) = valor previsto da característica de qualidade na condição ótima
-            - `Y_global` ($\bar{Y}$) = média geral de todas as observações do experimento
-            - `Efeito do Fator no nível ótimo` ($\bar{Y}_{k,\ell^\star} - \bar{Y}$) = contribuição do fator $k$ no seu melhor nível $\ell^\star$
-            - $n$ = número total de fatores
-            """)
-
-            st.markdown("**Forma equivalente (soma das melhores médias):**")
-            st.latex(r"\hat{Y}_{\text{prev}} \;=\; \left(\sum_{k=1}^{n}  \bar{Y}_{k,\ell^\star}\right) \;-\; (n-1)\,\bar{Y}")
-
-
+  
+            st.markdown("---") 
             st.subheader("🎯 Estimativa de valores no ponto ótimo")
 
             # ==============================
@@ -1254,7 +1233,7 @@ if st.session_state.get('df_experimentos') is not None:
                     selected_level_means.append(np.nan)
 
             # Linha de título do ponto ótimo
-            st.markdown("**Ponto ótimo (Taguchi, via S/N):**")
+            st.markdown("**Ponto ótimo**")
 
             # Render simples dos níveis ótimos em uma linha “chipada”
             chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
