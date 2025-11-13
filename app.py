@@ -973,6 +973,10 @@ if st.session_state.get('df_experimentos') is not None:
                 "mesmo que não esteja na matriz ortogonal."
             )
 
+            # 🔸 Texto orientando a entrada do usuário
+            st.markdown("**Selecione abaixo um nível para cada fator e o sistema calculará automaticamente a resposta predita.**")
+
+
             # ----------------- Seleção de níveis pelo usuário (vertical, corpo principal) -----------------
             user_levels = {}
             for fac in factor_cols:
@@ -1015,6 +1019,7 @@ if st.session_state.get('df_experimentos') is not None:
                 st.warning(f"Não foi possível calcular a previsão de S/N: {e}")
 
             st.divider()
+            st.markdown("🔍 **Resultados das predições no ponto fornecido pelo usuário**") 
 
             # ----------------- Cards de resultados (mesmo estilo verde dos seus cards) -----------------
             col1, col2 = st.columns(2)
@@ -1124,7 +1129,8 @@ if st.session_state.get('df_experimentos') is not None:
             fname_full = f"matriz_fatorial_predicoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
             # ---------- Exibir botões em duas colunas ----------
-            st.divider()
+            #st.divider()
+            st.markdown("<br><br>", unsafe_allow_html=True)
             col_b1, col_b2 = st.columns(2)
 
             with col_b1:
@@ -1193,7 +1199,7 @@ if st.session_state.get('df_experimentos') is not None:
                     f"Média de {var_label} no Nível Ótimo": media_y_otimo
                 })
 
-            st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
+            st.markdown("🔍 **Níveis ótimos por fator**")
             opt_table = pd.DataFrame(opt_rows)
 
             # Formata a nova coluna para melhor visualização
@@ -1233,7 +1239,7 @@ if st.session_state.get('df_experimentos') is not None:
                     selected_level_means.append(np.nan)
 
             # Linha de título do ponto ótimo
-            st.markdown("**Ponto ótimo**")
+            st.markdown("🔍 **Ponto ótimo**")
 
             # Render simples dos níveis ótimos em uma linha “chipada”
             chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
@@ -1248,7 +1254,8 @@ if st.session_state.get('df_experimentos') is not None:
             st.markdown(chips_html, unsafe_allow_html=True)
 
             st.divider()
-
+            st.markdown("🔍 **Resultados das predições no ponto ótimo**")
+            
             # ==============================
             # 🔹 Caixas (mantendo seu formato)
             # ==============================
@@ -1349,7 +1356,8 @@ if st.session_state.get('df_experimentos') is not None:
                     unsafe_allow_html=True,
                 )
 
-            st.divider()
+            #st.divider()
+            st.markdown("<br><br>", unsafe_allow_html=True)
 
             # ==============================
             # 🔹 Baixar ponto ótimo com estimativas
@@ -1376,7 +1384,7 @@ if st.session_state.get('df_experimentos') is not None:
             )
 
 
-                    
+            st.markdown("---")        
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
