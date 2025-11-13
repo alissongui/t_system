@@ -534,127 +534,7 @@ if st.session_state.get('df_experimentos') is not None:
                         else:
                             st.info("Nenhuma tabela por fator disponível para download.")
 
-                        # =============================================
-                        # 📐 Δ por fator — Tabela simples
-                        # Requer: per_factor_tables (dict: fac -> DataFrame com colunas ["Nível","S/N médio (dB)"])
-                        # =============================================
-                        st.markdown("---")
-                        st.subheader("📐 Cálculo do delta por fator")
-
-                        if st.toggle("🔵 O que é o 'delta'? (clique para ver) 🔵", value=False, key="show_delta"):
-                            st.markdown(r"""
-                            Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influência de cada fator sobre a resposta do problema, sendo que fatores com maiores valores de $\Delta$ são considerados mais relevantes, pois produzem maior variação na razão sinal-ruído média entre seus níveis. Especificamente, para cada fator $ k $, o **Delta** $( \Delta_k )$ é dado pela **amplitude** entre a maior e a menor **S/N média** dos seus níveis:
-                            """
-                                       )
-
-                        st.latex(r"\Delta_k = \max_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell} - \min_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell}")
-                        
-                        st.markdown(r"""
-                        **Procedimento de cálculo (passos):**
-                        1. Agrupe a $\mathrm{S/N}$ por **nível** do fator $k$  
-                        2. Calcule a **$\mathrm{S/N}$ média** em cada nível  
-                        3. Identifique **máximo** e **mínimo** dessas médias  
-                        4. Faça $\Delta = \textrm{máx} - \textrm{mín}$ (em dB)
-                        
-                        **Interpretação.** 
-                        - Valor de $\Delta_k$  grande $\implies$ o fator $k$ **altera fortemente** a resposta (maior influência)  
-                        - Valor de $ \Delta_k \approx 0 $ $\implies$ pouca ou nenhuma influência detectável via $\mathrm{S/N}$
-                        
-                        **Uso.** Ordena fatores por influência (***regra delta***). É descritivo — **não** testa significância.
-                        
-                        **Observações rápidas:**
-                        - Válido para qualquer tipo de S/N (maior-melhor, menor-melhor, nominal-melhor)  
-                        - Em **empates** de S/N média entre níveis, adote uma regra estável (p.ex., a **ordem natural** dos níveis)  
-                        - Para **significância estatística**, use **ANOVA sobre S/N** em complemento à regra delta
-                        
-                        **Exemplo (do relatório):**
-                        - Temperatura: \( 38{,}40 - 36{,}21 = 2{,}19 \) dB ⇒ maior Δ  
-                        - Tempo: \( 37{,}74 - 37{,}04 = 0{,}70 \) dB ⇒ menor Δ
-                        """)
-                        
-                        st.markdown("---")
-                        
-                        rows = []
-                        for fac, fac_df in per_factor_tables.items():
-                            if fac_df.empty or "S/N médio (dB)" not in fac_df.columns:
-                                rows.append({"Fator": fac, "S/N médio máx. (dB)": float("nan"),
-                                             "S/N médio mín. (dB)": float("nan"), "Δ (dB)": float("nan")})
-                                continue
-                            s = pd.to_numeric(fac_df["S/N médio (dB)"], errors="coerce")
-                            vmax = float(s.max())
-                            vmin = float(s.min())
-                            rows.append({"Fator": fac,
-                                         "S/N médio máx. (dB)": round(vmax, 3),
-                                         "S/N médio mín. (dB)": round(vmin, 3),
-                                         "Δ (dB)": round(vmax - vmin, 3)})
-                        
-                        delta_simple_df = (
-                            pd.DataFrame(rows)
-                            .sort_values("Δ (dB)", ascending=False, na_position="last")
-                            .reset_index(drop=True)
-                        )
-                        delta_simple_df["Rank (Δ)"] = np.arange(1, len(delta_simple_df) + 1)
-                        
-                        st.dataframe(delta_simple_df, use_container_width=True, hide_index=True)
-                        
-                        # Download CSV
-                        buf = io.StringIO()
-                        delta_simple_df.to_csv(buf, index=False)
-                        st.download_button(
-                            "📥 Baixar delta por fator (CSV)",
-                            data=buf.getvalue().encode("utf-8"),
-                            file_name=f"delta_simples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv",
-                            key="dl_delta_simples_csv",
-                        )
-
-
- 
-                    
-                    # Sumário com Melhor nível, Delta e ranking (usando S/N médio)
-                    summary_rows = []
-                    for fac, fac_df in per_factor_tables.items():
-                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                            summary_rows.append({"Fator": fac, "Melhor nível": "-", "Delta (dB)": float("nan")})
-                            continue
-                        vmax = fac_df["S/N médio (dB)"].max()
-                        vmin = fac_df["S/N médio (dB)"].min()
-                        best_lvl = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
-                        delta = float(vmax - vmin)
-                        summary_rows.append({"Fator": fac, "Melhor nível": best_lvl, "Delta (dB)": round(delta, 3)})
-                    
-                    summary_df = (
-                        pd.DataFrame(summary_rows)
-                        .sort_values("Delta (dB)", ascending=False, na_position="last")
-                        .reset_index(drop=True)
-                    )
-                    summary_df["Rank (Delta)"] = np.arange(1, len(summary_df) + 1)
-                    
-                    st.markdown("🔍 Sumário (melhor nível, Delta e ranking)")
-                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-                    
-                    # 3) Downloads
-                    colA, colB = st.columns(2)
-                    with colA:
-                        csv_efx = pd.concat(
-                            [df.assign(**{"Fator": fac}) for fac, df in per_factor_tables.items()],
-                            ignore_index=True
-                        )
-                        st.download_button(
-                            "📥 Baixar efeitos por nível (CSV)",
-                            data=csv_efx.to_csv(index=False).encode("utf-8"),
-                            file_name="efeitos_medios_por_nivel.csv",
-                            mime="text/csv",
-                        )
-                    with colB:
-                        st.download_button(
-                            "📥 Baixar sumário (CSV)",
-                            data=summary_df.to_csv(index=False).encode("utf-8"),
-                            file_name="sumario_melhor_nivel_delta.csv",
-                            mime="text/csv",
-                        )
-
+                    st.markdown("---")
         
                     # =============================================
                     # 📈 Efeitos médios — gráficos (estilo Minitab)
@@ -839,542 +719,663 @@ if st.session_state.get('df_experimentos') is not None:
                         html_bytes = pio.to_html(fig_all, include_plotlyjs="cdn", full_html=False).encode("utf-8")
                         st.download_button("📥 HTML (interativo)", data=html_bytes, file_name="efeitos_medios_todos_fatores.html", mime="text/html")
 
-                    # ================================================================
-                    # 📊 Observado × Predito — em duas tabelas (Y) e (S/N)
-                    # ================================================================
-                    st.subheader("📊 Observado × Predito (por ensaio)")
-                    st.caption("Com base nas médias por ensaio: predições do modelo aditivo e resíduos.")
-                    
-                    # ---------- Preparos ----------
-                    n_factors = len(factor_cols)
-                    
-                    # Vetores por ensaio
-                    y_by_run = np.asarray(mean_y, dtype=float)                          # média das réplicas (Y observado)
-                    sn_by_run = df_effects[sn_col].astype(float).to_numpy()             # S/N observado (dB)
-                    
-                    Y_bar  = float(np.nanmean(y_by_run))
-                    SN_bar = float(np.nanmean(sn_by_run))
-                    
-                    # Médias por nível (Y)
-                    tmp_y = df_plan.copy()
-                    tmp_y["__mean_y__"] = y_by_run
-                    mean_y_level = {fac: tmp_y.groupby(df_plan[fac].astype(str))["__mean_y__"].mean().to_dict()
-                                    for fac in factor_cols}
-                    
-                    # Médias por nível (S/N) — usa tabelas por fator; fallback por ensaios
-                    mean_sn_level = {}
-                    for fac in factor_cols:
-                        d = {}
-                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                        if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
-                            d.update(dict(zip(fac_df["Nível"].astype(str), fac_df["S/N médio (dB)"].astype(float))))
-                        # garante todos os níveis existentes no plano
-                        for lvl in df_plan[fac].astype(str).unique():
-                            if lvl not in d:
-                                mask = (df_plan[fac].astype(str) == lvl)
-                                d[lvl] = float(df_effects.loc[mask, sn_col].mean())
-                        mean_sn_level[fac] = d
-                    
-                    # ---------- Monta TABELA 1: Y ----------
-                    rows_y = []
-                    for i in range(len(df_plan)):
-                        lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
-                        sum_levels_y = sum(float(mean_y_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
-                        y_pred = float(sum_levels_y - (n_factors - 1) * Y_bar)
-                        rows_y.append({
-                            **lvl_dict,
-                            "Y observado": y_by_run[i],
-                            "Y predito": y_pred,
-                            "Resíduo Y": y_by_run[i] - y_pred,
-                        })
-                    df_obs_pred_y = pd.DataFrame(rows_y)
-                    
-                    st.markdown("**Resposta do Problema (Y):**")
-                    st.dataframe(
-                        df_obs_pred_y.round({"Y observado":3, "Y predito":3, "Resíduo Y":3}),
-                        use_container_width=True, hide_index=True
-                    )
-                    
-                    # Download Y
-                    import io
-                    from datetime import datetime
-                    buf_y = io.StringIO()
-                    df_obs_pred_y.to_csv(buf_y, index=False)
-                    st.download_button(
-                        "📥 Baixar tabela Y (CSV)",
-                        data=buf_y.getvalue().encode("utf-8"),
-                        file_name=f"observado_predito_residuo_Y_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        key="dl_obs_pred_Y"
-                    )
-                    
-                    st.divider()
-                    
-                    # ---------- Monta TABELA 2: S/N ----------
-                    rows_sn = []
-                    for i in range(len(df_plan)):
-                        lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
-                        sum_levels_sn = sum(float(mean_sn_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
-                        sn_pred = float(sum_levels_sn - (n_factors - 1) * SN_bar)
-                        rows_sn.append({
-                            **lvl_dict,
-                            "S/N observado (dB)": sn_by_run[i],
-                            "S/N predito (dB)": sn_pred,
-                            "Resíduo S/N (dB)": sn_by_run[i] - sn_pred,
-                        })
-                    df_obs_pred_sn = pd.DataFrame(rows_sn)
-                    
-                    st.markdown("**Relação Sinal-Ruído (S/N):**")
-                    st.dataframe(
-                        df_obs_pred_sn.round({"S/N observado (dB)":3, "S/N predito (dB)":3, "Resíduo S/N (dB)":3}),
-                        use_container_width=True, hide_index=True
-                    )
-                    
-                    # Download S/N
-                    buf_sn = io.StringIO()
-                    df_obs_pred_sn.to_csv(buf_sn, index=False)
-                    st.download_button(
-                        "📥 Baixar tabela S/N (CSV)",
-                        data=buf_sn.getvalue().encode("utf-8"),
-                        file_name=f"observado_predito_residuo_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mime="text/csv",
-                        key="dl_obs_pred_SN"
-                    )
-                    
-                    st.divider()
 
-                    
-                     # ========= MODO 1: tudo no corpo principal (sem colunas externas) =========
-                    st.subheader("🧮 Ajuste do Modelo Preditivo (Efeitos Principais)")
-                    st.caption(
-                        "Use esta seção para estimar a resposta ou a razão S/N em qualquer combinação de fatores, "
-                        "mesmo que não esteja na matriz ortogonal."
-                    )
-                    
-                    # ----------------- Seleção de níveis pelo usuário (vertical, corpo principal) -----------------
-                    user_levels = {}
-                    for fac in factor_cols:
-                        niveis = sorted(df_plan[fac].astype(str).unique())
-                        user_levels[fac] = st.selectbox(f"Nível para {fac}:", niveis, key=f"pred_{fac}")
-                    
-                    # ----------------- Cálculo das previsões -----------------
-                    # Y (usa média das réplicas por ensaio já calculada em mean_y)
-                    try:
-                        y_by_run = np.asarray(mean_y, dtype=float)
-                        Y_bar = float(np.nanmean(y_by_run))
-                        efeitos = []
-                        for fac in factor_cols:
-                            nivel = str(user_levels[fac])
-                            mask = (df_plan[fac].astype(str) == nivel).values
-                            media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
-                            efeitos.append(media_nivel - Y_bar)
-                        Y_hat = float(Y_bar + np.nansum(efeitos))
-                    except Exception as e:
-                        Y_hat = float("nan")
-                        st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
-                    
-                    # S/N (usa tabelas por fator; se faltar nível, faz fallback direto dos ensaios)
-                    try:
-                        sn_bar = float(df_effects[sn_col].mean())
-                        efeitos_sn = []
-                        for fac in factor_cols:
-                            nivel = str(user_levels[fac])
-                            fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                            media_sn = np.nan
-                            if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(set(fac_df.columns)):
-                                media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
-                            if pd.isna(media_sn):  # fallback
-                                mask = (df_plan[fac].astype(str) == nivel)
-                                media_sn = float(df_effects.loc[mask, sn_col].mean())
-                            efeitos_sn.append(media_sn - sn_bar)
-                        eta_hat = float(sn_bar + np.nansum(efeitos_sn))
-                    except Exception as e:
-                        eta_hat = float("nan")
-                        st.warning(f"Não foi possível calcular a previsão de S/N: {e}")
-                    
-                    st.divider()
-                    
-                    # ----------------- Cards de resultados (mesmo estilo verde dos seus cards) -----------------
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown(
-                            f"""
-                            <div style="text-align:center; margin: 14px 0 8px;">
-                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
-                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
-                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                                  Previsão para {var_label}
-                                </div>
-                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                                  {("n/d" if np.isnan(Y_hat) else f"{Y_hat:.3f}")}
-                                </div>
-                              </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    
-                    with col2:
-                        st.markdown(
-                            f"""
-                            <div style="text-align:center; margin: 14px 0 8px;">
-                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
-                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
-                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                                  Previsão para S/N (dB)
-                                </div>
-                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                                  {("n/d" if np.isnan(eta_hat) else f"{eta_hat:.3f} dB")}
-                                </div>
-                              </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+                    # =============================================
+                    # 📐 Δ por fator — Tabela simples
+                    # Requer: per_factor_tables (dict: fac -> DataFrame com colunas ["Nível","S/N médio (dB)"])
+                    # =============================================
+                    st.markdown("---")
+                    st.subheader("📐 A regra Delta por fator")
 
+                    if st.toggle("🔴🔴🔴 O que é o 'Delta'? (clique para ver) 🔴🔴🔴", value=False, key="show_delta"):
+                        st.markdown(r"""
+                        Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influência de cada fator sobre a resposta do problema, sendo que fatores com maiores valores de $\Delta$ são considerados mais relevantes, pois produzem maior variação na razão sinal-ruído média entre seus níveis. Especificamente, para cada fator $ k $, o **Delta** $( \Delta_k )$ é dado pela **amplitude** entre a maior e a menor **S/N média** dos seus níveis:
+                        """
+                                   )
 
-
-                     # =========================
-                    # 📥 Exportações de predição (dois botões lado a lado)
-                    # =========================
+                        st.latex(r"\Delta_k = \max_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell} - \min_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell}")
                     
-                    # --- helper: previsão para uma combinação arbitrária de níveis (dict fac->nivel em str)
-                    def _predict_combo(level_dict):
-                        # Y
-                        y_by_run = np.asarray(mean_y, dtype=float)
-                        Y_bar = float(np.nanmean(y_by_run))
-                        efeitos_y = []
-                        for fac in factor_cols:
-                            nivel = str(level_dict[fac])
-                            mask = (df_plan[fac].astype(str) == nivel).values
-                            media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
-                            efeitos_y.append(media_nivel - Y_bar)
-                        y_pred = float(Y_bar + np.nansum(efeitos_y))
+                        st.markdown(r"""
+                    **Procedimento de cálculo (passos):**
+                    1. Agrupe a $\mathrm{S/N}$ por **nível** do fator $k$.
+                    2. Calcule a **$\mathrm{S/N}$ média** em cada nível.
+                    3. Identifique **máximo** e **mínimo** dessas médias.  
+                    4. Faça $\Delta = \textrm{máx} - \textrm{mín}$ (em dB).
                     
-                        # S/N
-                        sn_bar = float(df_effects[sn_col].mean())
-                        efeitos_sn = []
-                        for fac in factor_cols:
-                            nivel = str(level_dict[fac])
-                            fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                            media_sn = np.nan
-                            if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
-                                media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
-                            if pd.isna(media_sn):
-                                mask = (df_plan[fac].astype(str) == nivel)
-                                media_sn = float(df_effects.loc[mask, sn_col].mean())
-                            efeitos_sn.append(media_sn - sn_bar)
-                        eta_pred = float(sn_bar + np.nansum(efeitos_sn))
+                    **Interpretação.** 
+                    - Valor de $\Delta_k$  grande $\implies$ o fator $k$ **altera fortemente** a resposta (maior influência)  
+                    - Valor de $ \Delta_k \approx 0 $ $\implies$ pouca ou nenhuma influência detectável via $\mathrm{S/N}$
                     
-                        return y_pred, eta_pred
+                    **Observações rápidas:**
+                    - Válido para qualquer tipo de S/N (maior-melhor, menor-melhor, nominal-melhor).  
+                    - Em **empates** de S/N média entre níveis, adote uma regra estável (p.ex., a **ordem natural** dos níveis).
+                    - Ordena fatores por influência (***regra Delta***), porém **não** testa significância.
+                    - Para **significância estatística**, use **ANOVA sobre S/N** em complemento à regra delta
                     
-                    
-                    # ---------- (1) Ensaio atual ----------
-                    row_dict = {fac: user_levels[fac] for fac in factor_cols}
-                    y_pred_one, eta_pred_one = (Y_hat, eta_hat) if np.isfinite(Y_hat) and np.isfinite(eta_hat) else _predict_combo(row_dict)
-                    
-                    df_pred_one = pd.DataFrame([{
-                        **row_dict,
-                        f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred_one) else round(y_pred_one, 6)),
-                        "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred_one) else round(eta_pred_one, 6)),
-                    }])
-                    
-                    buf_one = io.StringIO()
-                    df_pred_one.to_csv(buf_one, index=False)
-                    fname_one = f"ensaio_predito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                    
-                    # ---------- (2) Matriz fatorial completa ----------
-                    levels_map = {fac: sorted(df_plan[fac].astype(str).unique()) for fac in factor_cols}
-                    rows = []
-                    for combo in product(*[levels_map[fac] for fac in factor_cols]):
-                        combo_dict = {fac: level for fac, level in zip(factor_cols, combo)}
-                        y_pred, eta_pred = _predict_combo(combo_dict)
-                        rows.append({
-                            **combo_dict,
-                            f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred) else round(y_pred, 6)),
-                            "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred) else round(eta_pred, 6)),
-                        })
-                    
-                    df_full = pd.DataFrame(rows)
-                    buf_full = io.StringIO()
-                    df_full.to_csv(buf_full, index=False)
-                    fname_full = f"matriz_fatorial_predicoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                    
-                    # ---------- Exibir botões em duas colunas ----------
-                    st.divider()
-                    col_b1, col_b2 = st.columns(2)
-                    
-                    with col_b1:
-                        st.download_button("📥 Baixar ensaio (predição atual)", 
-                                           buf_one.getvalue().encode("utf-8"),
-                                           file_name=fname_one, mime="text/csv", key="dl_pred_one")
-                    
-                    with col_b2:
-                        st.download_button("📥 Baixar matriz fatorial completa (predições)", 
-                                           buf_full.getvalue().encode("utf-8"),
-                                           file_name=fname_full, mime="text/csv", key="dl_pred_full")
-                
-                    
-                    st.subheader("🎯 Análise do Ponto Ótimo")
-                    
-                    # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
-                    opt_levels = {}
-                    opt_rows = []
-                    selected_level_means = []
-                    
-                    # PRIMEIRO: Precisamos da média da resposta (Y) no nível ótimo para cada fator
-                    # Junta os dados para calcular médias de Y por nível
-                    df_effects_y = df_plan.merge(
-                        df_res[['Experimento'] + num_cols],  # Pega todas as colunas numéricas (réplicas)
-                        on='Experimento', 
-                        how='left'
-                    )
-                    
-                    # Calcula média de Y para cada experimento (média das réplicas)
-                    df_effects_y['Media_Y'] = df_effects_y[num_cols].mean(axis=1)
-                    
-                    for fac in factor_cols:
-                        fac_df = per_factor_tables[fac]
-                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                            opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
-                            # NOVO: Calcula média de Y no nível ótimo (se disponível)
-                            media_y_otimo = float("nan")
-                        else:
-                            vmax = fac_df["S/N médio (dB)"].max()
-                            best_levels = (
-                                fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
-                                .astype(str)
-                                .tolist()
-                            )
-                            
-                            opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
-                            selected_level_means.append(float(vmax))
-                            
-                            # NOVO: Calcula a média de Y no nível ótimo
-                            # Pega o primeiro nível ótimo (se houver múltiplos, usa o primeiro)
-                            nivel_otimo = best_levels[0] if best_levels else None
-                            
-                            if nivel_otimo:
-                                # Filtra os experimentos com este nível ótimo e calcula média de Y
-                                mask = df_effects_y[fac] == nivel_otimo
-                                media_y_otimo = df_effects_y.loc[mask, 'Media_Y'].mean()
-                            else:
-                                media_y_otimo = float("nan")
-                        
-                        # Adiciona ao dataframe de resultados
-                        opt_rows.append({
-                            "Fator": fac,
-                            "Nível(éis) ótimo(s)": " / ".join(best_levels) if best_levels else "-",
-                            "S/N médio (dB)": float(vmax) if not fac_df.empty else float("nan"),
-                            # NOVA COLUNA: Média no Nível Ótimo
-                            f"Média de {var_label} no Nível Ótimo": media_y_otimo
-                        })
-                    
-                    st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
-                    opt_table = pd.DataFrame(opt_rows)
-                    
-                    # Formata a nova coluna para melhor visualização
-                    opt_table[f"Média de {var_label} no Nível Ótimo"] = opt_table[
-                        f"Média de {var_label} no Nível Ótimo"
-                    ].round(3)
-                    
-                    st.dataframe(opt_table, use_container_width=True, hide_index=True)
-                    
-                    st.download_button(
-                        "📥 Baixar níveis ótimos (CSV)",
-                        data=opt_table.to_csv(index=False).encode("utf-8"),
-                        file_name="ponto_otimo_taguchi.csv",
-                        mime="text/csv",
-                    )
-      
-    
-
-                    st.subheader("📄 Previsão do Desempenho Ótimo pelo Método Taguchi")
-
-                    st.markdown("**Modelo aditivo (visão geral):**")
-                    st.latex(r"\hat{Y}_{\text{prev}} \;=\; \bar{Y} \;+\; \sum_{k=1}^{n} \;\text{Efeito}_{k,\ell^\star}")
-                    
-                    st.markdown("**Definição do efeito (por fator no nível ótimo):**")
-                    st.latex(r"\text{Efeito}_{k,\ell^\star} \;=\; \bar{Y}_{k,\ell^\star} \;-\; \bar{Y}")
-                    
-                    st.markdown(r"""
-                    **Onde:**
-                    - `Y_previsto` ($\hat{Y}_{\text{prev}}$) = valor previsto da característica de qualidade na condição ótima  
-                    - `Y_global` ($\bar{Y}$) = média geral de todas as observações do experimento  
-                    - `Efeito do Fator no nível ótimo` ($\bar{Y}_{k,\ell^\star} - \bar{Y}$) = contribuição do fator $k$ no seu melhor nível $\ell^\star$  
-                    - $n$ = número total de fatores
                     """)
-
-                    st.markdown("**Forma equivalente (soma das melhores médias):**")
-                    st.latex(r"\hat{Y}_{\text{prev}} \;=\; \left(\sum_{k=1}^{n}  \bar{Y}_{k,\ell^\star}\right) \;-\; (n-1)\,\bar{Y}")   
-              
-
-                    st.subheader("🎯 Estimativa de valores no ponto ótimo")
                     
-                    # ==============================
-                    # 🔹 Resumo do ponto ótimo (antes das caixas)
-                    # ==============================
-                    # Seleciona o(s) nível(is) ótimo(s) por fator a partir das tabelas por fator (S/N)
-                    opt_levels = {}
-                    selected_level_means = []  # S/N médio (dB) do nível ótimo por fator
+                    st.markdown("---")
+                    st.markdown("🔍 Tabelas de cálculo da regra delta por fator")
                     
-                    for fac in factor_cols:
-                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                        if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
-                            vmax = float(fac_df["S/N médio (dB)"].max())
-                            best_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
-                            # Pega o primeiro se houver empates (exibição)
-                            opt_levels[fac] = best_levels[0] if best_levels else "-"
-                            selected_level_means.append(vmax)
-                        else:
-                            opt_levels[fac] = "-"
-                            selected_level_means.append(np.nan)
+                    rows = []
+                    for fac, fac_df in per_factor_tables.items():
+                        if fac_df.empty or "S/N médio (dB)" not in fac_df.columns:
+                            rows.append({"Fator": fac, "S/N médio máx. (dB)": float("nan"),
+                                         "S/N médio mín. (dB)": float("nan"), "Δ (dB)": float("nan")})
+                            continue
+                        s = pd.to_numeric(fac_df["S/N médio (dB)"], errors="coerce")
+                        vmax = float(s.max())
+                        vmin = float(s.min())
+                        rows.append({"Fator": fac,
+                                     "S/N médio máx. (dB)": round(vmax, 3),
+                                     "S/N médio mín. (dB)": round(vmin, 3),
+                                     "Δ (dB)": round(vmax - vmin, 3)})
                     
-                    # Linha de título do ponto ótimo
-                    st.markdown("**Ponto ótimo (Taguchi, via S/N):**")
+                    delta_simple_df = (
+                        pd.DataFrame(rows)
+                        .sort_values("Δ (dB)", ascending=False, na_position="last")
+                        .reset_index(drop=True)
+                    )
+                    delta_simple_df["Rank (Δ)"] = np.arange(1, len(delta_simple_df) + 1)
                     
-                    # Render simples dos níveis ótimos em uma linha “chipada”
-                    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
-                    for fac in factor_cols:
-                        chips_html += f"""
-                            <div style="padding:6px 12px; background:#ecfdf5;
-                                        border-radius:999px; font-size:13px; color:#064e3b;
-                                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels[fac]}
-                            </div>"""
-                    chips_html += "</div>"
-                    st.markdown(chips_html, unsafe_allow_html=True)
+                    st.dataframe(delta_simple_df, use_container_width=True, hide_index=True)
                     
-                    st.divider()
-                    
-                    # ==============================
-                    # 🔹 Caixas (mantendo seu formato)
-                    # ==============================
-                    colY, colSN = st.columns(2)
-                    
-                    # --------- COLUNA ESQUERDA: Y ---------
-                    with colY:
-                        try:
-                            # Preferência: usar a coluna "Média de {var_label} no Nível Ótimo" se já existir
-                            col_media_otimo = f"Média de {var_label} no Nível Ótimo"
-                            if 'opt_table' in locals() and col_media_otimo in opt_table.columns:
-                                Y_best_means = opt_table[col_media_otimo].to_numpy(dtype=float)
-                                k = len(Y_best_means)
-                            else:
-                                # Fallback: calcula média de Y no nível ótimo diretamente do plano
-                                y_by_run = np.asarray(mean_y, dtype=float)
-                                Y_best_means = []
-                                for fac in factor_cols:
-                                    nivel = str(opt_levels[fac])
-                                    if nivel == "-":
-                                        Y_best_means.append(np.nan)
-                                    else:
-                                        mask = (df_plan[fac].astype(str) == nivel).values
-                                        Y_best_means.append(float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan)
-                                k = len(factor_cols)
-                    
-                            Y_bar = float(np.nanmean(mean_y)) if 'mean_y' in locals() else float('nan')
-                            if k > 0 and not np.isnan(Y_bar) and not np.isnan(np.array(Y_best_means)).any():
-                                Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
-                            else:
-                                Y_hat_taguchi = float("nan")
-                        except Exception as e:
-                            st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
-                            Y_hat_taguchi = float("nan")
-                    
-                        # Card (verde)
-                        st.markdown(
-                            f"""
-                            <div style="text-align:center; margin: 14px 0 8px;">
-                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
-                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
-                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                                  Valor previsto (Taguchi) — {var_label}
-                                </div>
-                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                                  {("n/d" if np.isnan(Y_hat_taguchi) else f"{Y_hat_taguchi:.3f}")}
-                                </div>
-                              </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    
-                    # --------- COLUNA DIREITA: S/N ---------
-                    with colSN:
-                        # grand_mean (S/N)
-                        try:
-                            grand_mean = float(grand_mean)
-                        except Exception:
-                            grand_mean = float(df_effects[sn_col].mean())
-                    
-                        # Garante selected_level_means (S/N por fator no nível ótimo)
-                        try:
-                            needs_init = (not selected_level_means)
-                        except NameError:
-                            needs_init = True
-                        if needs_init:
-                            selected_level_means = []
-                            for fac in factor_cols:
-                                fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                                if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
-                                    selected_level_means.append(float("nan"))
-                                else:
-                                    selected_level_means.append(float(fac_df["S/N médio (dB)"].max()))
-                    
-                        k = len(factor_cols)
-                        best_means_sn = np.array(selected_level_means, dtype=float)
-                        if k > 0 and not np.isnan(grand_mean) and not np.isnan(best_means_sn).any():
-                            eta_hat_taguchi = float(best_means_sn.sum() - (k - 1) * grand_mean)
-                        else:
-                            eta_hat_taguchi = float("nan")
-                    
-                        # Card (verde)
-                        st.markdown(
-                            f"""
-                            <div style="text-align:center; margin: 14px 0 8px;">
-                              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
-                                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
-                                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
-                                  S/N previsto (Taguchi Aditivo) — {var_label}
-                                </div>
-                                <div style="font-size:26px; font-weight:700; color:#064e3b;">
-                                  {("n/d" if np.isnan(eta_hat_taguchi) else f"{eta_hat_taguchi:.3f} dB")}
-                                </div>
-                              </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    
-                    st.divider()
-                    
-                    # ==============================
-                    # 🔹 Baixar ponto ótimo com estimativas
-                    # ==============================
-                    
-                    # DataFrame com: níveis ótimos por fator + estimativas globais
-                    row = {fac: opt_levels[fac] for fac in factor_cols}
-                    row.update({
-                        f"Previsão {var_label}": (np.nan if np.isnan(Y_hat_taguchi) else round(Y_hat_taguchi, 6)),
-                        "Previsão S/N (dB)": (np.nan if np.isnan(eta_hat_taguchi) else round(eta_hat_taguchi, 6)),
-                    })
-                    
-                    df_opt_export = pd.DataFrame([row])
-                    buf_opt = io.StringIO()
-                    df_opt_export.to_csv(buf_opt, index=False)
-                    fname_opt = f"ponto_otimo_estimada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-                    
+                    # Download CSV
+                    buf = io.StringIO()
+                    delta_simple_df.to_csv(buf, index=False)
                     st.download_button(
-                        "📥 Baixar ponto ótimo com estimativas",
-                        data=buf_opt.getvalue().encode("utf-8"),
-                        file_name=fname_opt,
+                        "📥 Baixar delta por fator (CSV)",
+                        data=buf.getvalue().encode("utf-8"),
+                        file_name=f"delta_simples_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
-                        key="dl_opt_estimates"
+                        key="dl_delta_simples_csv",
                     )
 
 
+
+                
+                # Sumário com Melhor nível, Delta e ranking (usando S/N médio)
+                summary_rows = []
+                for fac, fac_df in per_factor_tables.items():
+                    if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                        summary_rows.append({"Fator": fac, "Melhor nível": "-", "Delta (dB)": float("nan")})
+                        continue
+                    vmax = fac_df["S/N médio (dB)"].max()
+                    vmin = fac_df["S/N médio (dB)"].min()
+                    best_lvl = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].iloc[0]
+                    delta = float(vmax - vmin)
+                    summary_rows.append({"Fator": fac, "Melhor nível": best_lvl, "Delta (dB)": round(delta, 3)})
+                
+                summary_df = (
+                    pd.DataFrame(summary_rows)
+                    .sort_values("Delta (dB)", ascending=False, na_position="last")
+                    .reset_index(drop=True)
+                )
+                summary_df["Rank (Delta)"] = np.arange(1, len(summary_df) + 1)
+                
+                st.markdown("🔍 Sumário (melhor nível, Delta e ranking)")
+                st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+                
+                # 3) Downloads
+                colA, colB = st.columns(2)
+                with colA:
+                    csv_efx = pd.concat(
+                        [df.assign(**{"Fator": fac}) for fac, df in per_factor_tables.items()],
+                        ignore_index=True
+                    )
+                    st.download_button(
+                        "📥 Baixar efeitos por nível (CSV)",
+                        data=csv_efx.to_csv(index=False).encode("utf-8"),
+                        file_name="efeitos_medios_por_nivel.csv",
+                        mime="text/csv",
+                    )
+                with colB:
+                    st.download_button(
+                        "📥 Baixar sumário (CSV)",
+                        data=summary_df.to_csv(index=False).encode("utf-8"),
+                        file_name="sumario_melhor_nivel_delta.csv",
+                        mime="text/csv",
+                    )
+
+            st.markdown("---")
+            # ================================================================
+            # 📊 Observado × Predito — em duas tabelas (Y) e (S/N)
+            # ================================================================
+            st.subheader("📊 Observado × Predito (por ensaio)")
+            st.caption("Com base nas médias por ensaio: predições do modelo aditivo e resíduos.")
+
+            # ---------- Preparos ----------
+            n_factors = len(factor_cols)
+
+            # Vetores por ensaio
+            y_by_run = np.asarray(mean_y, dtype=float)                          # média das réplicas (Y observado)
+            sn_by_run = df_effects[sn_col].astype(float).to_numpy()             # S/N observado (dB)
+
+            Y_bar  = float(np.nanmean(y_by_run))
+            SN_bar = float(np.nanmean(sn_by_run))
+
+            # Médias por nível (Y)
+            tmp_y = df_plan.copy()
+            tmp_y["__mean_y__"] = y_by_run
+            mean_y_level = {fac: tmp_y.groupby(df_plan[fac].astype(str))["__mean_y__"].mean().to_dict()
+                            for fac in factor_cols}
+
+            # Médias por nível (S/N) — usa tabelas por fator; fallback por ensaios
+            mean_sn_level = {}
+            for fac in factor_cols:
+                d = {}
+                fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                    d.update(dict(zip(fac_df["Nível"].astype(str), fac_df["S/N médio (dB)"].astype(float))))
+                # garante todos os níveis existentes no plano
+                for lvl in df_plan[fac].astype(str).unique():
+                    if lvl not in d:
+                        mask = (df_plan[fac].astype(str) == lvl)
+                        d[lvl] = float(df_effects.loc[mask, sn_col].mean())
+                mean_sn_level[fac] = d
+
+            # ---------- Monta TABELA 1: Y ----------
+            rows_y = []
+            for i in range(len(df_plan)):
+                lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
+                sum_levels_y = sum(float(mean_y_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
+                y_pred = float(sum_levels_y - (n_factors - 1) * Y_bar)
+                rows_y.append({
+                    **lvl_dict,
+                    "Y observado": y_by_run[i],
+                    "Y predito": y_pred,
+                    "Resíduo Y": y_by_run[i] - y_pred,
+                })
+            df_obs_pred_y = pd.DataFrame(rows_y)
+
+            st.markdown("**Resposta do Problema (Y):**")
+            st.dataframe(
+                df_obs_pred_y.round({"Y observado":3, "Y predito":3, "Resíduo Y":3}),
+                use_container_width=True, hide_index=True
+            )
+
+            # Download Y
+            import io
+            from datetime import datetime
+            buf_y = io.StringIO()
+            df_obs_pred_y.to_csv(buf_y, index=False)
+            st.download_button(
+                "📥 Baixar tabela Y (CSV)",
+                data=buf_y.getvalue().encode("utf-8"),
+                file_name=f"observado_predito_residuo_Y_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="dl_obs_pred_Y"
+            )
+
+            st.divider()
+
+            # ---------- Monta TABELA 2: S/N ----------
+            rows_sn = []
+            for i in range(len(df_plan)):
+                lvl_dict = {fac: str(df_plan.loc[i, fac]) for fac in factor_cols}
+                sum_levels_sn = sum(float(mean_sn_level[fac].get(lvl_dict[fac], np.nan)) for fac in factor_cols)
+                sn_pred = float(sum_levels_sn - (n_factors - 1) * SN_bar)
+                rows_sn.append({
+                    **lvl_dict,
+                    "S/N observado (dB)": sn_by_run[i],
+                    "S/N predito (dB)": sn_pred,
+                    "Resíduo S/N (dB)": sn_by_run[i] - sn_pred,
+                })
+            df_obs_pred_sn = pd.DataFrame(rows_sn)
+
+            st.markdown("**Relação Sinal-Ruído (S/N):**")
+            st.dataframe(
+                df_obs_pred_sn.round({"S/N observado (dB)":3, "S/N predito (dB)":3, "Resíduo S/N (dB)":3}),
+                use_container_width=True, hide_index=True
+            )
+
+            # Download S/N
+            buf_sn = io.StringIO()
+            df_obs_pred_sn.to_csv(buf_sn, index=False)
+            st.download_button(
+                "📥 Baixar tabela S/N (CSV)",
+                data=buf_sn.getvalue().encode("utf-8"),
+                file_name=f"observado_predito_residuo_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="dl_obs_pred_SN"
+            )
+
+            st.divider()
+
+
+             # ========= MODO 1: tudo no corpo principal (sem colunas externas) =========
+            st.subheader("🧮 Ajuste do Modelo Preditivo (Efeitos Principais)")
+            st.caption(
+                "Use esta seção para estimar a resposta ou a razão S/N em qualquer combinação de fatores, "
+                "mesmo que não esteja na matriz ortogonal."
+            )
+
+            # ----------------- Seleção de níveis pelo usuário (vertical, corpo principal) -----------------
+            user_levels = {}
+            for fac in factor_cols:
+                niveis = sorted(df_plan[fac].astype(str).unique())
+                user_levels[fac] = st.selectbox(f"Nível para {fac}:", niveis, key=f"pred_{fac}")
+
+            # ----------------- Cálculo das previsões -----------------
+            # Y (usa média das réplicas por ensaio já calculada em mean_y)
+            try:
+                y_by_run = np.asarray(mean_y, dtype=float)
+                Y_bar = float(np.nanmean(y_by_run))
+                efeitos = []
+                for fac in factor_cols:
+                    nivel = str(user_levels[fac])
+                    mask = (df_plan[fac].astype(str) == nivel).values
+                    media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                    efeitos.append(media_nivel - Y_bar)
+                Y_hat = float(Y_bar + np.nansum(efeitos))
+            except Exception as e:
+                Y_hat = float("nan")
+                st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
+
+            # S/N (usa tabelas por fator; se faltar nível, faz fallback direto dos ensaios)
+            try:
+                sn_bar = float(df_effects[sn_col].mean())
+                efeitos_sn = []
+                for fac in factor_cols:
+                    nivel = str(user_levels[fac])
+                    fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                    media_sn = np.nan
+                    if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(set(fac_df.columns)):
+                        media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+                    if pd.isna(media_sn):  # fallback
+                        mask = (df_plan[fac].astype(str) == nivel)
+                        media_sn = float(df_effects.loc[mask, sn_col].mean())
+                    efeitos_sn.append(media_sn - sn_bar)
+                eta_hat = float(sn_bar + np.nansum(efeitos_sn))
+            except Exception as e:
+                eta_hat = float("nan")
+                st.warning(f"Não foi possível calcular a previsão de S/N: {e}")
+
+            st.divider()
+
+            # ----------------- Cards de resultados (mesmo estilo verde dos seus cards) -----------------
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                        <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                          Previsão para {var_label}
+                        </div>
+                        <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                          {("n/d" if np.isnan(Y_hat) else f"{Y_hat:.3f}")}
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            with col2:
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                        <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                          Previsão para S/N (dB)
+                        </div>
+                        <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                          {("n/d" if np.isnan(eta_hat) else f"{eta_hat:.3f} dB")}
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+
+             # =========================
+            # 📥 Exportações de predição (dois botões lado a lado)
+            # =========================
+
+            # --- helper: previsão para uma combinação arbitrária de níveis (dict fac->nivel em str)
+            def _predict_combo(level_dict):
+                # Y
+                y_by_run = np.asarray(mean_y, dtype=float)
+                Y_bar = float(np.nanmean(y_by_run))
+                efeitos_y = []
+                for fac in factor_cols:
+                    nivel = str(level_dict[fac])
+                    mask = (df_plan[fac].astype(str) == nivel).values
+                    media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                    efeitos_y.append(media_nivel - Y_bar)
+                y_pred = float(Y_bar + np.nansum(efeitos_y))
+
+                # S/N
+                sn_bar = float(df_effects[sn_col].mean())
+                efeitos_sn = []
+                for fac in factor_cols:
+                    nivel = str(level_dict[fac])
+                    fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                    media_sn = np.nan
+                    if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                        media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+                    if pd.isna(media_sn):
+                        mask = (df_plan[fac].astype(str) == nivel)
+                        media_sn = float(df_effects.loc[mask, sn_col].mean())
+                    efeitos_sn.append(media_sn - sn_bar)
+                eta_pred = float(sn_bar + np.nansum(efeitos_sn))
+
+                return y_pred, eta_pred
+
+
+            # ---------- (1) Ensaio atual ----------
+            row_dict = {fac: user_levels[fac] for fac in factor_cols}
+            y_pred_one, eta_pred_one = (Y_hat, eta_hat) if np.isfinite(Y_hat) and np.isfinite(eta_hat) else _predict_combo(row_dict)
+
+            df_pred_one = pd.DataFrame([{
+                **row_dict,
+                f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred_one) else round(y_pred_one, 6)),
+                "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred_one) else round(eta_pred_one, 6)),
+            }])
+
+            buf_one = io.StringIO()
+            df_pred_one.to_csv(buf_one, index=False)
+            fname_one = f"ensaio_predito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+            # ---------- (2) Matriz fatorial completa ----------
+            levels_map = {fac: sorted(df_plan[fac].astype(str).unique()) for fac in factor_cols}
+            rows = []
+            for combo in product(*[levels_map[fac] for fac in factor_cols]):
+                combo_dict = {fac: level for fac, level in zip(factor_cols, combo)}
+                y_pred, eta_pred = _predict_combo(combo_dict)
+                rows.append({
+                    **combo_dict,
+                    f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred) else round(y_pred, 6)),
+                    "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred) else round(eta_pred, 6)),
+                })
+
+            df_full = pd.DataFrame(rows)
+            buf_full = io.StringIO()
+            df_full.to_csv(buf_full, index=False)
+            fname_full = f"matriz_fatorial_predicoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+            # ---------- Exibir botões em duas colunas ----------
+            st.divider()
+            col_b1, col_b2 = st.columns(2)
+
+            with col_b1:
+                st.download_button("📥 Baixar ensaio (predição atual)",
+                                   buf_one.getvalue().encode("utf-8"),
+                                   file_name=fname_one, mime="text/csv", key="dl_pred_one")
+
+            with col_b2:
+                st.download_button("📥 Baixar matriz fatorial completa (predições)",
+                                   buf_full.getvalue().encode("utf-8"),
+                                   file_name=fname_full, mime="text/csv", key="dl_pred_full")
+
+
+            st.subheader("🎯 Análise do Ponto Ótimo")
+
+            # --- Níveis ótimos por fator — Taguchi (S/N das réplicas) ---
+            opt_levels = {}
+            opt_rows = []
+            selected_level_means = []
+
+            # PRIMEIRO: Precisamos da média da resposta (Y) no nível ótimo para cada fator
+            # Junta os dados para calcular médias de Y por nível
+            df_effects_y = df_plan.merge(
+                df_res[['Experimento'] + num_cols],  # Pega todas as colunas numéricas (réplicas)
+                on='Experimento',
+                how='left'
+            )
+
+            # Calcula média de Y para cada experimento (média das réplicas)
+            df_effects_y['Media_Y'] = df_effects_y[num_cols].mean(axis=1)
+
+            for fac in factor_cols:
+                fac_df = per_factor_tables[fac]
+                if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                    opt_levels[fac] = {"Níveis ótimos": [], "S/N médio (dB)": float("nan")}
+                    # NOVO: Calcula média de Y no nível ótimo (se disponível)
+                    media_y_otimo = float("nan")
+                else:
+                    vmax = fac_df["S/N médio (dB)"].max()
+                    best_levels = (
+                        fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"]
+                        .astype(str)
+                        .tolist()
+                    )
+
+                    opt_levels[fac] = {"Níveis ótimos": best_levels, "S/N médio (dB)": float(vmax)}
+                    selected_level_means.append(float(vmax))
+
+                    # NOVO: Calcula a média de Y no nível ótimo
+                    # Pega o primeiro nível ótimo (se houver múltiplos, usa o primeiro)
+                    nivel_otimo = best_levels[0] if best_levels else None
+
+                    if nivel_otimo:
+                        # Filtra os experimentos com este nível ótimo e calcula média de Y
+                        mask = df_effects_y[fac] == nivel_otimo
+                        media_y_otimo = df_effects_y.loc[mask, 'Media_Y'].mean()
+                    else:
+                        media_y_otimo = float("nan")
+
+                # Adiciona ao dataframe de resultados
+                opt_rows.append({
+                    "Fator": fac,
+                    "Nível(éis) ótimo(s)": " / ".join(best_levels) if best_levels else "-",
+                    "S/N médio (dB)": float(vmax) if not fac_df.empty else float("nan"),
+                    # NOVA COLUNA: Média no Nível Ótimo
+                    f"Média de {var_label} no Nível Ótimo": media_y_otimo
+                })
+
+            st.markdown("**Níveis ótimos por fator — Taguchi (S/N das réplicas):**")
+            opt_table = pd.DataFrame(opt_rows)
+
+            # Formata a nova coluna para melhor visualização
+            opt_table[f"Média de {var_label} no Nível Ótimo"] = opt_table[
+                f"Média de {var_label} no Nível Ótimo"
+            ].round(3)
+
+            st.dataframe(opt_table, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                "📥 Baixar níveis ótimos (CSV)",
+                data=opt_table.to_csv(index=False).encode("utf-8"),
+                file_name="ponto_otimo_taguchi.csv",
+                mime="text/csv",
+            )
+
+
+
+            st.subheader("📄 Previsão do Desempenho Ótimo pelo Método Taguchi")
+
+            st.markdown("**Modelo aditivo (visão geral):**")
+            st.latex(r"\hat{Y}_{\text{prev}} \;=\; \bar{Y} \;+\; \sum_{k=1}^{n} \;\text{Efeito}_{k,\ell^\star}")
+
+            st.markdown("**Definição do efeito (por fator no nível ótimo):**")
+            st.latex(r"\text{Efeito}_{k,\ell^\star} \;=\; \bar{Y}_{k,\ell^\star} \;-\; \bar{Y}")
+
+            st.markdown(r"""
+            **Onde:**
+            - `Y_previsto` ($\hat{Y}_{\text{prev}}$) = valor previsto da característica de qualidade na condição ótima
+            - `Y_global` ($\bar{Y}$) = média geral de todas as observações do experimento
+            - `Efeito do Fator no nível ótimo` ($\bar{Y}_{k,\ell^\star} - \bar{Y}$) = contribuição do fator $k$ no seu melhor nível $\ell^\star$
+            - $n$ = número total de fatores
+            """)
+
+            st.markdown("**Forma equivalente (soma das melhores médias):**")
+            st.latex(r"\hat{Y}_{\text{prev}} \;=\; \left(\sum_{k=1}^{n}  \bar{Y}_{k,\ell^\star}\right) \;-\; (n-1)\,\bar{Y}")
+
+
+            st.subheader("🎯 Estimativa de valores no ponto ótimo")
+
+            # ==============================
+            # 🔹 Resumo do ponto ótimo (antes das caixas)
+            # ==============================
+            # Seleciona o(s) nível(is) ótimo(s) por fator a partir das tabelas por fator (S/N)
+            opt_levels = {}
+            selected_level_means = []  # S/N médio (dB) do nível ótimo por fator
+
+            for fac in factor_cols:
+                fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                if not fac_df.empty and {"Nível","S/N médio (dB)"}.issubset(fac_df.columns):
+                    vmax = float(fac_df["S/N médio (dB)"].max())
+                    best_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
+                    # Pega o primeiro se houver empates (exibição)
+                    opt_levels[fac] = best_levels[0] if best_levels else "-"
+                    selected_level_means.append(vmax)
+                else:
+                    opt_levels[fac] = "-"
+                    selected_level_means.append(np.nan)
+
+            # Linha de título do ponto ótimo
+            st.markdown("**Ponto ótimo (Taguchi, via S/N):**")
+
+            # Render simples dos níveis ótimos em uma linha “chipada”
+            chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+            for fac in factor_cols:
+                chips_html += f"""
+                    <div style="padding:6px 12px; background:#ecfdf5;
+                                border-radius:999px; font-size:13px; color:#064e3b;
+                                box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                        <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels[fac]}
+                    </div>"""
+            chips_html += "</div>"
+            st.markdown(chips_html, unsafe_allow_html=True)
+
+            st.divider()
+
+            # ==============================
+            # 🔹 Caixas (mantendo seu formato)
+            # ==============================
+            colY, colSN = st.columns(2)
+
+            # --------- COLUNA ESQUERDA: Y ---------
+            with colY:
+                try:
+                    # Preferência: usar a coluna "Média de {var_label} no Nível Ótimo" se já existir
+                    col_media_otimo = f"Média de {var_label} no Nível Ótimo"
+                    if 'opt_table' in locals() and col_media_otimo in opt_table.columns:
+                        Y_best_means = opt_table[col_media_otimo].to_numpy(dtype=float)
+                        k = len(Y_best_means)
+                    else:
+                        # Fallback: calcula média de Y no nível ótimo diretamente do plano
+                        y_by_run = np.asarray(mean_y, dtype=float)
+                        Y_best_means = []
+                        for fac in factor_cols:
+                            nivel = str(opt_levels[fac])
+                            if nivel == "-":
+                                Y_best_means.append(np.nan)
+                            else:
+                                mask = (df_plan[fac].astype(str) == nivel).values
+                                Y_best_means.append(float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan)
+                        k = len(factor_cols)
+
+                    Y_bar = float(np.nanmean(mean_y)) if 'mean_y' in locals() else float('nan')
+                    if k > 0 and not np.isnan(Y_bar) and not np.isnan(np.array(Y_best_means)).any():
+                        Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
+                    else:
+                        Y_hat_taguchi = float("nan")
+                except Exception as e:
+                    st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
+                    Y_hat_taguchi = float("nan")
+
+                # Card (verde)
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                        <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                          Valor previsto (Taguchi) — {var_label}
+                        </div>
+                        <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                          {("n/d" if np.isnan(Y_hat_taguchi) else f"{Y_hat_taguchi:.3f}")}
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            # --------- COLUNA DIREITA: S/N ---------
+            with colSN:
+                # grand_mean (S/N)
+                try:
+                    grand_mean = float(grand_mean)
+                except Exception:
+                    grand_mean = float(df_effects[sn_col].mean())
+
+                # Garante selected_level_means (S/N por fator no nível ótimo)
+                try:
+                    needs_init = (not selected_level_means)
+                except NameError:
+                    needs_init = True
+                if needs_init:
+                    selected_level_means = []
+                    for fac in factor_cols:
+                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                        if fac_df.empty or fac_df["S/N médio (dB)"].isna().all():
+                            selected_level_means.append(float("nan"))
+                        else:
+                            selected_level_means.append(float(fac_df["S/N médio (dB)"].max()))
+
+                k = len(factor_cols)
+                best_means_sn = np.array(selected_level_means, dtype=float)
+                if k > 0 and not np.isnan(grand_mean) and not np.isnan(best_means_sn).any():
+                    eta_hat_taguchi = float(best_means_sn.sum() - (k - 1) * grand_mean)
+                else:
+                    eta_hat_taguchi = float("nan")
+
+                # Card (verde)
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                        <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                          S/N previsto (Taguchi Aditivo) — {var_label}
+                        </div>
+                        <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                          {("n/d" if np.isnan(eta_hat_taguchi) else f"{eta_hat_taguchi:.3f} dB")}
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            st.divider()
+
+            # ==============================
+            # 🔹 Baixar ponto ótimo com estimativas
+            # ==============================
+
+            # DataFrame com: níveis ótimos por fator + estimativas globais
+            row = {fac: opt_levels[fac] for fac in factor_cols}
+            row.update({
+                f"Previsão {var_label}": (np.nan if np.isnan(Y_hat_taguchi) else round(Y_hat_taguchi, 6)),
+                "Previsão S/N (dB)": (np.nan if np.isnan(eta_hat_taguchi) else round(eta_hat_taguchi, 6)),
+            })
+
+            df_opt_export = pd.DataFrame([row])
+            buf_opt = io.StringIO()
+            df_opt_export.to_csv(buf_opt, index=False)
+            fname_opt = f"ponto_otimo_estimada_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+            st.download_button(
+                "📥 Baixar ponto ótimo com estimativas",
+                data=buf_opt.getvalue().encode("utf-8"),
+                file_name=fname_opt,
+                mime="text/csv",
+                key="dl_opt_estimates"
+            )
+
+
+                    
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
