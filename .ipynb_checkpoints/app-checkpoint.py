@@ -1384,7 +1384,246 @@ if st.session_state.get('df_experimentos') is not None:
             )
 
 
-            st.markdown("---")        
+            st.markdown("---")
+
+            # ================================================================
+            # 🧪 Ensaio de confirmação
+            # ================================================================
+            st.subheader("🧪 Ensaio de confirmação")
+            
+            st.caption(
+                "Use esta seção para comparar os resultados de um ensaio de confirmação "
+                "com os valores preditos pelo modelo aditivo de efeitos principais."
+            )
+            
+
+            
+            # ----------------- Passo 1: escolher ponto ótimo ou outra combinação -----------------
+            st.markdown("**1️⃣ Escolha o ponto de análise do ensaio de confirmação**")
+            
+            # valor padrão anterior do modo (para detectar mudança)
+            if "modo_conf_prev" not in st.session_state:
+                st.session_state["modo_conf_prev"] = "Ponto ótimo (recomendado)"
+            
+            # garante valor inicial para n_reps_confirm
+            if "n_reps_confirm" not in st.session_state:
+                st.session_state["n_reps_confirm"] = 1
+            
+            modo_conf = st.radio(
+                "Selecione a combinação de níveis a ser utilizada:",
+                ("Ponto ótimo (recomendado)", "Outra combinação de níveis"),
+                index=0,
+                key="modo_conf"
+            )
+            
+            # 🔄 sempre que o modo mudar (para qualquer um dos dois), resetar repetições e limpar campos
+            if st.session_state["modo_conf_prev"] != modo_conf:
+                # volta para 1 repetição
+                st.session_state["n_reps_confirm"] = 1
+            
+                # limpa valores digitados anteriormente
+                for k in list(st.session_state.keys()):
+                    if k.startswith("y_conf_") or k.startswith("sn_conf_"):
+                        st.session_state.pop(k)
+            
+                # atualiza modo anterior
+                st.session_state["modo_conf_prev"] = modo_conf
+
+
+            
+            conf_levels = {}
+            
+            if modo_conf == "Ponto ótimo (recomendado)":
+                if "opt_levels" in locals() and opt_levels:
+                    st.markdown("Usando os níveis ótimos encontrados na análise anterior:")
+                    lista_niveis = []
+                    for fac in factor_cols:
+                        val = opt_levels.get(fac, None)
+            
+                        # Caso 1: opt_levels[fac] seja um dicionário com "Níveis ótimos"
+                        if isinstance(val, dict):
+                            niveis_otimos = val.get("Níveis ótimos", [])
+                            if niveis_otimos:
+                                nivel_esc = str(niveis_otimos[0])
+                            else:
+                                nivel_esc = str(sorted(df_plan[fac].astype(str).unique())[0])
+            
+                        # Caso 2: opt_levels[fac] seja uma string (nível único)
+                        elif isinstance(val, str) and val != "-":
+                            nivel_esc = val
+            
+                        # Caso 3: qualquer outra coisa → fallback para primeiro nível disponível
+                        else:
+                            nivel_esc = str(sorted(df_plan[fac].astype(str).unique())[0])
+            
+                        conf_levels[fac] = nivel_esc
+                        lista_niveis.append(f"- **{fac}**: nível `{nivel_esc}`")
+            
+                    st.markdown("\n".join(lista_niveis))
+                else:
+                    st.warning(
+                        "Níveis ótimos não encontrados no sistema. "
+                        "Selecione manualmente os níveis na opção 'Outra combinação de níveis'."
+                    )
+                    modo_conf = "Outra combinação de níveis"
+
+            
+            if modo_conf == "Outra combinação de níveis":
+                st.markdown("Selecione manualmente os níveis utilizados no ensaio de confirmação:")
+                for fac in factor_cols:
+                    niveis = sorted(df_plan[fac].astype(str).unique())
+                    conf_levels[fac] = st.selectbox(
+                        f"Nível para {fac} no ensaio de confirmação:",
+                        niveis,
+                        key=f"conf_{fac}"
+                    )
+            
+            # ----------------- Passo 2: entrada dos resultados experimentais (várias repetições) -----------------
+            st.markdown("**2️⃣ Informe os resultados experimentais do ensaio de confirmação**")
+            
+            # número de repetições controlado via session_state
+            if "n_reps_confirm" not in st.session_state:
+                st.session_state["n_reps_confirm"] = 1
+            
+            n_reps = st.session_state["n_reps_confirm"]
+            
+            st.markdown(
+                "Você pode informar o resultado de uma ou mais repetições do ensaio de confirmação. "
+                "Clique em **➕ Adicionar repetição** para abrir novas caixas."
+            )
+            
+            y_conf_vals = []
+            sn_conf_vals = []
+            
+            for i in range(n_reps):
+                st.markdown(f"**Repetição {i+1}**")
+                col_y, col_sn = st.columns(2)
+            
+                with col_y:
+                    y_str = st.text_input(
+                        f"{var_label} observado (repetição {i+1})",
+                        value="",
+                        placeholder="Digite o valor...",
+                        key=f"y_conf_{i}"
+                    )
+                    try:
+                        y_val = float(y_str) if y_str.strip() != "" else float("nan")
+                    except:
+                        y_val = float("nan")
+            
+                with col_sn:
+                    sn_str = st.text_input(
+                        f"S/N observado (dB) (repetição {i+1})",
+                        value="",
+                        placeholder="Digite o valor...",
+                        key=f"sn_conf_{i}"
+                    )
+                    try:
+                        sn_val = float(sn_str) if sn_str.strip() != "" else float("nan")
+                    except:
+                        sn_val = float("nan")
+            
+                y_conf_vals.append(y_val)
+                sn_conf_vals.append(sn_val)
+
+            
+            if st.button("➕ Adicionar repetição", key="btn_add_rep_conf"):
+                st.session_state["n_reps_confirm"] += 1
+                
+            
+            # ----------------- Passo 3: cálculo da média observada e comparação com o modelo -----------------
+            st.markdown("**3️⃣ Comparação entre médias observadas e valores preditos**")
+            
+            # Médias das repetições informadas
+            y_conf_mean = float(np.nanmean(y_conf_vals)) if len(y_conf_vals) > 0 else float("nan")
+            sn_conf_mean = float(np.nanmean(sn_conf_vals)) if len(sn_conf_vals) > 0 else float("nan")
+            
+            # Predição Y para a combinação de confirmação
+            try:
+                y_by_run = np.asarray(mean_y, dtype=float)
+                Y_bar = float(np.nanmean(y_by_run))
+                efeitos_conf = []
+                for fac in factor_cols:
+                    nivel = str(conf_levels[fac])
+                    mask = (df_plan[fac].astype(str) == nivel).values
+                    media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                    efeitos_conf.append(media_nivel - Y_bar)
+                Y_hat_conf = float(Y_bar + np.nansum(efeitos_conf))
+            except Exception as e:
+                Y_hat_conf = float("nan")
+                st.warning(f"Não foi possível calcular a previsão de {var_label} para o ensaio de confirmação: {e}")
+            
+            # Predição S/N para a combinação de confirmação
+            try:
+                sn_bar = float(df_effects[sn_col].mean())
+                efeitos_sn_conf = []
+                for fac in factor_cols:
+                    nivel = str(conf_levels[fac])
+                    fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                    media_sn = np.nan
+                    if not fac_df.empty and {"Nível", "S/N médio (dB)"}.issubset(set(fac_df.columns)):
+                        media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+                    if pd.isna(media_sn):  # fallback pelos ensaios
+                        mask = (df_plan[fac].astype(str) == nivel)
+                        media_sn = float(df_effects.loc[mask, sn_col].mean())
+                    efeitos_sn_conf.append(media_sn - sn_bar)
+                eta_hat_conf = float(sn_bar + np.nansum(efeitos_sn_conf))
+            except Exception as e:
+                eta_hat_conf = float("nan")
+                st.warning(f"Não foi possível calcular a previsão de S/N para o ensaio de confirmação: {e}")
+            
+            # Erros com base nas MÉDIAS observadas
+            err_y = y_conf_mean - Y_hat_conf if not np.isnan(Y_hat_conf) else float("nan")
+            err_rel_y = (100.0 * err_y / Y_hat_conf) if (not np.isnan(err_y) and Y_hat_conf not in [0.0, np.nan]) else float("nan")
+            err_sn = sn_conf_mean - eta_hat_conf if not np.isnan(eta_hat_conf) else float("nan")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#eff6ff;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.10);">
+                        <div style="font-size:14px; color:#1d4ed8; font-weight:600; margin-bottom:4px;">
+                          {var_label}: Média observada × Predito
+                        </div>
+                        <div style="font-size:13px; color:#1f2937; margin-bottom:4px;">
+                          Média observada: <strong>{("n/d" if np.isnan(y_conf_mean) else f"{y_conf_mean:.4f}")}</strong><br/>
+                          Predito: <strong>{("n/d" if np.isnan(Y_hat_conf) else f"{Y_hat_conf:.4f}")}</strong>
+                        </div>
+                        <div style="font-size:13px; color:#374151;">
+                          Erro absoluto: <strong>{("n/d" if np.isnan(err_y) else f"{err_y:.4f}")}</strong><br/>
+                          Erro relativo: <strong>{("n/d" if np.isnan(err_rel_y) else f"{err_rel_y:.2f}%")}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            
+            with col2:
+                st.markdown(
+                    f"""
+                    <div style="text-align:center; margin: 14px 0 8px;">
+                      <div style="display:inline-block; padding:12px 22px; background:#eff6ff;
+                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.10);">
+                        <div style="font-size:14px; color:#1d4ed8; font-weight:600; margin-bottom:4px;">
+                          S/N (dB): Média observada × Predito
+                        </div>
+                        <div style="font-size:13px; color:#1f2937; margin-bottom:4px;">
+                          Média observada: <strong>{("n/d" if np.isnan(sn_conf_mean) else f"{sn_conf_mean:.4f} dB")}</strong><br/>
+                          Predito: <strong>{("n/d" if np.isnan(eta_hat_conf) else f"{eta_hat_conf:.4f} dB")}</strong>
+                        </div>
+                        <div style="font-size:13px; color:#374151;">
+                          Diferença: <strong>{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
