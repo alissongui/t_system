@@ -9,6 +9,15 @@ import io
 from itertools import product
 from datetime import datetime
 
+# (depois dos imports já existentes)
+try:
+    from scipy.stats import f as f_dist
+    HAS_SCIPY = True
+except Exception:
+    HAS_SCIPY = False
+    f_dist = None
+
+
 # =============================================
 # Configuração
 # =============================================
@@ -1659,6 +1668,203 @@ if st.session_state.get('df_experimentos') is not None:
                             unsafe_allow_html=True,
                         )
 
+
+
+                    # ================================================================
+                    # 📊 ANOVA sobre a razão S/N (opcional)
+                    # ================================================================
+                    st.markdown("---")
+                    st.subheader("📊 ANOVA sobre a razão S/N (opcional)")
+        
+                    st.caption(
+                        "Esta ANOVA é baseada na razão S/N por ensaio, usando apenas efeitos principais. "
+                        "Ela decompõe a variação total de S/N em parcelas atribuídas a cada fator e ao erro."
+                    )
+        
+                    if st.toggle("🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴", value=False, key="show_anova_help"):
+                        st.markdown(r"""
+                        A ANOVA (Análise de Variância) aqui considera a razão S/N de cada ensaio como resposta
+                        e decompõe a soma de quadrados total em:
+        
+                        - **Soma de Quadrados do Fator**: quanto cada fator contribui para a variação de S/N;  
+                        - **Soma de Quadrados de Erro**: variação não explicada pelos efeitos principais;  
+                        - **Soma de Quadrados Total**: variação total da S/N em torno da média global.
+        
+                        Como o planejamento é ortogonal, a contribuição de cada fator é calculada por:
+                        """)
+                        st.latex(r"""
+                        SS_k \;=\; \sum_{\ell} n_{k,\ell}\,\bigl(\overline{\mathrm{S/N}}_{k,\ell}
+                        - \overline{\mathrm{S/N}}_{\text{global}}\bigr)^2
+                        """)
+                        st.markdown(r"""
+                        em que $\overline{\mathrm{S/N}}_{k,\ell}$ é a média de S/N no nível $\ell$ do fator $k$
+                        e $n_{k,\ell}$ é o número de ensaios nesse nível.
+        
+                        Quando há graus de liberdade de erro disponíveis, obtêm-se:
+                        - $QM_k = SS_k / gl_k$  
+                        - $QM_{erro} = SS_{erro} / gl_{erro}$  
+                        - $F = QM_k / QM_{erro}$ (e opcionalmente um p-valor, se o pacote SciPy estiver disponível).
+                        """)
+        
+                    # Botão para ativar/rodar a ANOVA
+                    if st.button("📊 Calcular ANOVA (S/N)", key="btn_anova_sn"):
+        
+                        # Vetor de S/N por ensaio
+                        y_sn = df_effects[sn_col].to_numpy(dtype=float)
+                        N = len(y_sn)
+                        if N <= 1:
+                            st.error("❌ Número insuficiente de ensaios para calcular ANOVA.")
+                        else:
+                            grand_mean_sn = float(np.nanmean(y_sn))
+                            ss_total = float(np.nansum((y_sn - grand_mean_sn) ** 2))
+                            df_total = N - 1
+        
+                            # Soma de quadrados por fator
+                            factor_entries = []
+                            ss_factors_sum = 0.0
+                            df_factors_sum = 0
+        
+                            for fac in factor_cols:
+                                # Agrupa S/N por nível (como string) do fator
+                                g = df_effects.groupby(df_effects[fac].astype(str))[sn_col]
+                                means = g.mean()
+                                counts = g.size()
+        
+                                # SS do fator k: sum n_{k,ℓ} (mean_{k,ℓ} - grand_mean)^2
+                                ss_fac = float(np.nansum(counts * (means - grand_mean_sn) ** 2))
+                                df_fac = len(means) - 1
+        
+                                ss_factors_sum += ss_fac
+                                df_factors_sum += df_fac
+        
+                                factor_entries.append({
+                                    "Fonte": fac,
+                                    "gl": df_fac,
+                                    "SQ": ss_fac,
+                                })
+        
+                            # Erro = total - soma dos fatores (pode ficar pequeno negativo por arredondamento)
+                            ss_error = ss_total - ss_factors_sum
+                            if ss_error < 0 and abs(ss_error) < 1e-10:
+                                ss_error = 0.0  # corrige pequeno negativo numérico
+        
+                            df_error = df_total - df_factors_sum
+        
+                            rows_anova = []
+        
+                            # Caso não haja GL de erro, avisa e calcula só SQ/GL por fator
+                            if df_error <= 0:
+                                st.warning(
+                                    "Os graus de liberdade dos fatores esgotam (ou superam) os graus de liberdade totais. "
+                                    "Não há gl de erro disponíveis; não é possível calcular F nem p-valores. "
+                                    "A tabela abaixo mostra apenas SQ e GL de cada fator e o total."
+                                )
+                                # Preenche linhas dos fatores (sem QM, F, p)
+                                for ent in factor_entries:
+                                    rows_anova.append({
+                                        "Fonte": ent["Fonte"],
+                                        "GL": ent["gl"],
+                                        "SQ": ent["SQ"],
+                                        "QM": np.nan,
+                                        "F": np.nan,
+                                        "p-valor (aprox.)": np.nan,
+                                    })
+        
+                                # Linha de erro (GL=0)
+                                rows_anova.append({
+                                    "Fonte": "Erro",
+                                    "GL": 0,
+                                    "SQ": ss_error,
+                                    "QM": np.nan,
+                                    "F": np.nan,
+                                    "p-valor (aprox.)": np.nan,
+                                })
+        
+                                # Linha total
+                                rows_anova.append({
+                                    "Fonte": "Total",
+                                    "GL": df_total,
+                                    "SQ": ss_total,
+                                    "QM": np.nan,
+                                    "F": np.nan,
+                                    "p-valor (aprox.)": np.nan,
+                                })
+                            else:
+                                # Há GL de erro → calcula QM, F, e tenta p-valor
+                                ms_error = ss_error / df_error if df_error > 0 else np.nan
+        
+                                for ent in factor_entries:
+                                    gl_k = ent["gl"]
+                                    ss_k = ent["SQ"]
+                                    ms_k = ss_k / gl_k if gl_k > 0 else np.nan
+                                    F_k = ms_k / ms_error if (gl_k > 0 and ms_error > 0) else np.nan
+        
+                                    if HAS_SCIPY and f_dist is not None and gl_k > 0 and df_error > 0 and not np.isnan(F_k):
+                                        try:
+                                            p_k = float(f_dist.sf(F_k, gl_k, df_error))
+                                        except Exception:
+                                            p_k = np.nan
+                                    else:
+                                        p_k = np.nan
+        
+                                    rows_anova.append({
+                                        "Fonte": ent["Fonte"],
+                                        "GL": gl_k,
+                                        "SQ": ss_k,
+                                        "QM": ms_k,
+                                        "F": F_k,
+                                        "p-valor (aprox.)": p_k,
+                                    })
+        
+                                # Linha de erro
+                                rows_anova.append({
+                                    "Fonte": "Erro",
+                                    "GL": df_error,
+                                    "SQ": ss_error,
+                                    "QM": ms_error,
+                                    "F": np.nan,
+                                    "p-valor (aprox.)": np.nan,
+                                })
+        
+                                # Linha total
+                                rows_anova.append({
+                                    "Fonte": "Total",
+                                    "GL": df_total,
+                                    "SQ": ss_total,
+                                    "QM": np.nan,
+                                    "F": np.nan,
+                                    "p-valor (aprox.)": np.nan,
+                                })
+        
+                            anova_df = pd.DataFrame(rows_anova)
+        
+                            # Arredonda resultados numéricos
+                            for col in ["SQ", "QM", "F", "p-valor (aprox.)"]:
+                                if col in anova_df.columns:
+                                    anova_df[col] = pd.to_numeric(anova_df[col], errors="coerce").round(4)
+        
+                            st.markdown("🔍 **Tabela ANOVA (razão S/N como resposta)**")
+                            st.dataframe(anova_df, use_container_width=True, hide_index=True)
+        
+                            # Botão de download da ANOVA
+                            buf_anova = io.StringIO()
+                            anova_df.to_csv(buf_anova, index=False)
+                            st.download_button(
+                                "📥 Baixar tabela ANOVA (CSV)",
+                                data=buf_anova.getvalue().encode("utf-8"),
+                                file_name=f"anova_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv",
+                                key="dl_anova_sn",
+                            )
+        
+                            if not HAS_SCIPY:
+                                st.info(
+                                    "ℹ️ Os p-valores não foram calculados porque o pacote **SciPy** não está disponível.\n"
+                                    "Se desejar p-valores, instale SciPy no ambiente de execução:\n\n"
+                                    "`pip install scipy`"
+                                )
+
+        
         
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de resultados: {str(e)}")
