@@ -1478,151 +1478,186 @@ if st.session_state.get('df_experimentos') is not None:
                         key=f"conf_{fac}"
                     )
             
-            # ----------------- Passo 2: entrada dos resultados experimentais (várias repetições) -----------------
-            st.markdown("**2️⃣ Informe os resultados experimentais do ensaio de confirmação**")
-            
-            # número de repetições controlado via session_state
-            if "n_reps_confirm" not in st.session_state:
-                st.session_state["n_reps_confirm"] = 1
-            
-            n_reps = st.session_state["n_reps_confirm"]
-            
-            st.markdown(
-                "Você pode informar o resultado de uma ou mais repetições do ensaio de confirmação. "
-                "Clique em **➕ Adicionar repetição** para abrir novas caixas."
-            )
-            
-            y_conf_vals = []
-            sn_conf_vals = []
-            
-            for i in range(n_reps):
-                st.markdown(f"**Repetição {i+1}**")
-                col_y, col_sn = st.columns(2)
-            
-                with col_y:
-                    y_str = st.text_input(
-                        f"{var_label} observado (repetição {i+1})",
-                        value="",
-                        placeholder="Digite o valor...",
-                        key=f"y_conf_{i}"
-                    )
-                    try:
-                        y_val = float(y_str) if y_str.strip() != "" else float("nan")
-                    except:
-                        y_val = float("nan")
-            
-                with col_sn:
-                    sn_str = st.text_input(
-                        f"S/N observado (dB) (repetição {i+1})",
-                        value="",
-                        placeholder="Digite o valor...",
-                        key=f"sn_conf_{i}"
-                    )
-                    try:
-                        sn_val = float(sn_str) if sn_str.strip() != "" else float("nan")
-                    except:
-                        sn_val = float("nan")
-            
-                y_conf_vals.append(y_val)
-                sn_conf_vals.append(sn_val)
+                        # ----------------- Passo 2: entrada dos resultados experimentais (várias repetições) -----------------
+            st.markdown("**2️⃣ Carregue os resultados do ensaio de confirmação**")
 
-            
-            if st.button("➕ Adicionar repetição", key="btn_add_rep_conf"):
-                st.session_state["n_reps_confirm"] += 1
-                
-            
+            st.markdown(
+                "Faça o upload de uma **matriz de repetições** do ensaio de confirmação. "
+                "O arquivo pode ser `.xlsx` ou `.csv`. Todas as colunas numéricas serão "
+                "usadas como valores reais de "
+                f"**{var_label}** nas repetições (todas as linhas)."
+            )
+
+            # Vetor com os valores do ensaio de confirmação (todas as repetições)
+            y_conf_vals = np.array([], dtype=float)
+
+            conf_upl = st.file_uploader(
+                "📤 Carregar matriz de repetições do ensaio de confirmação",
+                type=["xlsx", "csv"],
+                key="conf_upl",
+            )
+
+            if conf_upl is not None:
+                try:
+                    # Leitura do arquivo (similar ao upload de resultados principal)
+                    if conf_upl.name.endswith(".csv"):
+                        df_conf = pd.read_csv(conf_upl, sep=";")
+                    else:
+                        df_conf = pd.read_excel(conf_upl)
+
+                    # Seleciona apenas colunas numéricas (valores reais do experimento)
+                    num_cols = [
+                        c for c in df_conf.columns
+                        if pd.api.types.is_numeric_dtype(df_conf[c])
+                    ]
+
+                    if len(num_cols) == 0:
+                        st.error("❌ Nenhuma coluna numérica encontrada no arquivo de confirmação.")
+                    else:
+                        vals = df_conf[num_cols].to_numpy(dtype=float).ravel()
+                        vals = vals[~np.isnan(vals)]
+
+                        if vals.size == 0:
+                            st.error("❌ Não há valores numéricos válidos na matriz de confirmação.")
+                        else:
+                            y_conf_vals = vals
+                            st.success(
+                                f"✅ {len(y_conf_vals)} valores de {var_label} "
+                                "carregados para o ensaio de confirmação."
+                            )
+                            st.markdown("**Valores utilizados no ensaio de confirmação:**")
+                            st.dataframe(
+                                pd.DataFrame({var_label: y_conf_vals}),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                            # Mostra o tipo de S/N que será usado no cálculo final
+                            st.info(
+                                f"A razão S/N do ensaio de confirmação será calculada com o mesmo tipo "
+                                f"selecionado na análise principal: **{sn_tipo}**."
+                            )
+
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar o arquivo de confirmação: {e}")
+                    y_conf_vals = np.array([], dtype=float)
+
             # ----------------- Passo 3: cálculo da média observada e comparação com o modelo -----------------
             st.markdown("**3️⃣ Comparação entre médias observadas e valores preditos**")
-            
-            # Médias das repetições informadas
-            y_conf_mean = float(np.nanmean(y_conf_vals)) if len(y_conf_vals) > 0 else float("nan")
-            sn_conf_mean = float(np.nanmean(sn_conf_vals)) if len(sn_conf_vals) > 0 else float("nan")
-            
-            # Predição Y para a combinação de confirmação
-            try:
-                y_by_run = np.asarray(mean_y, dtype=float)
-                Y_bar = float(np.nanmean(y_by_run))
-                efeitos_conf = []
-                for fac in factor_cols:
-                    nivel = str(conf_levels[fac])
-                    mask = (df_plan[fac].astype(str) == nivel).values
-                    media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
-                    efeitos_conf.append(media_nivel - Y_bar)
-                Y_hat_conf = float(Y_bar + np.nansum(efeitos_conf))
-            except Exception as e:
-                Y_hat_conf = float("nan")
-                st.warning(f"Não foi possível calcular a previsão de {var_label} para o ensaio de confirmação: {e}")
-            
-            # Predição S/N para a combinação de confirmação
-            try:
-                sn_bar = float(df_effects[sn_col].mean())
-                efeitos_sn_conf = []
-                for fac in factor_cols:
-                    nivel = str(conf_levels[fac])
-                    fac_df = per_factor_tables.get(fac, pd.DataFrame())
-                    media_sn = np.nan
-                    if not fac_df.empty and {"Nível", "S/N médio (dB)"}.issubset(set(fac_df.columns)):
-                        media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
-                    if pd.isna(media_sn):  # fallback pelos ensaios
-                        mask = (df_plan[fac].astype(str) == nivel)
-                        media_sn = float(df_effects.loc[mask, sn_col].mean())
-                    efeitos_sn_conf.append(media_sn - sn_bar)
-                eta_hat_conf = float(sn_bar + np.nansum(efeitos_sn_conf))
-            except Exception as e:
-                eta_hat_conf = float("nan")
-                st.warning(f"Não foi possível calcular a previsão de S/N para o ensaio de confirmação: {e}")
-            
-            # Erros com base nas MÉDIAS observadas
-            err_y = y_conf_mean - Y_hat_conf if not np.isnan(Y_hat_conf) else float("nan")
-            err_rel_y = (100.0 * err_y / Y_hat_conf) if (not np.isnan(err_y) and Y_hat_conf not in [0.0, np.nan]) else float("nan")
-            err_sn = sn_conf_mean - eta_hat_conf if not np.isnan(eta_hat_conf) else float("nan")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(
-                    f"""
-                    <div style="text-align:center; margin: 14px 0 8px;">
-                      <div style="display:inline-block; padding:12px 22px; background:#eff6ff;
-                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.10);">
-                        <div style="font-size:14px; color:#1d4ed8; font-weight:600; margin-bottom:4px;">
-                          {var_label}: Média observada × Predito
-                        </div>
-                        <div style="font-size:13px; color:#1f2937; margin-bottom:4px;">
-                          Média observada: <strong>{("n/d" if np.isnan(y_conf_mean) else f"{y_conf_mean:.4f}")}</strong><br/>
-                          Predito: <strong>{("n/d" if np.isnan(Y_hat_conf) else f"{Y_hat_conf:.4f}")}</strong>
-                        </div>
-                        <div style="font-size:13px; color:#374151;">
-                          Erro absoluto: <strong>{("n/d" if np.isnan(err_y) else f"{err_y:.4f}")}</strong><br/>
-                          Erro relativo: <strong>{("n/d" if np.isnan(err_rel_y) else f"{err_rel_y:.2f}%")}</strong>
-                        </div>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+
+            if y_conf_vals.size == 0:
+                st.info(
+                    "⏳ Para calcular as médias observadas e comparar com o modelo, "
+                    "primeiro carregue a matriz de resultados do ensaio de confirmação no **Passo 2**."
                 )
-            
-            with col2:
-                st.markdown(
-                    f"""
-                    <div style="text-align:center; margin: 14px 0 8px;">
-                      <div style="display:inline-block; padding:12px 22px; background:#eff6ff;
-                                  border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.10);">
-                        <div style="font-size:14px; color:#1d4ed8; font-weight:600; margin-bottom:4px;">
-                          S/N (dB): Média observada × Predito
-                        </div>
-                        <div style="font-size:13px; color:#1f2937; margin-bottom:4px;">
-                          Média observada: <strong>{("n/d" if np.isnan(sn_conf_mean) else f"{sn_conf_mean:.4f} dB")}</strong><br/>
-                          Predito: <strong>{("n/d" if np.isnan(eta_hat_conf) else f"{eta_hat_conf:.4f} dB")}</strong>
-                        </div>
-                        <div style="font-size:13px; color:#374151;">
-                          Diferença: <strong>{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong>
-                        </div>
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+            else:
+                # Médias das repetições informadas
+                y_conf_mean = float(np.nanmean(y_conf_vals))
+
+                # S/N observado no ensaio de confirmação
+                try:
+                    sn_conf_mean = float(compute_snr(y_conf_vals, sn_tipo, nominal_target))
+                except Exception:
+                    sn_conf_mean = float("nan")
+
+                # Predição Y para a combinação de confirmação
+                try:
+                    y_by_run = np.asarray(mean_y, dtype=float)
+                    Y_bar = float(np.nanmean(y_by_run))
+                    efeitos_conf = []
+                    for fac in factor_cols:
+                        nivel = str(conf_levels[fac])
+                        mask = (df_plan[fac].astype(str) == nivel).values
+                        media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+                        efeitos_conf.append(media_nivel - Y_bar)
+                    Y_hat_conf = float(Y_bar + np.nansum(efeitos_conf))
+                except Exception as e:
+                    Y_hat_conf = float("nan")
+                    st.warning(
+                        f"Não foi possível calcular a previsão de {var_label} "
+                        f"para o ensaio de confirmação: {e}"
+                    )
+
+                # Predição S/N para a combinação de confirmação (mesmo modelo de efeitos principais)
+                try:
+                    sn_bar = float(df_effects[sn_col].mean())
+                    efeitos_sn_conf = []
+                    for fac in factor_cols:
+                        nivel = str(conf_levels[fac])
+                        fac_df = per_factor_tables.get(fac, pd.DataFrame())
+                        media_sn = np.nan
+                        if not fac_df.empty and {"Nível", "S/N médio (dB)"}.issubset(set(fac_df.columns)):
+                            media_sn = fac_df.loc[
+                                fac_df["Nível"].astype(str) == nivel,
+                                "S/N médio (dB)"
+                            ].mean()
+                        if pd.isna(media_sn):  # fallback pelos ensaios
+                            mask = (df_plan[fac].astype(str) == nivel)
+                            media_sn = float(df_effects.loc[mask, sn_col].mean())
+                        efeitos_sn_conf.append(media_sn - sn_bar)
+                    eta_hat_conf = float(sn_bar + np.nansum(efeitos_sn_conf))
+                except Exception as e:
+                    eta_hat_conf = float("nan")
+                    st.warning(
+                        f"Não foi possível calcular a previsão de S/N para o ensaio de confirmação: {e}"
+                    )
+
+                # Erros com base nas MÉDIAS observadas
+                err_y = abs(y_conf_mean - Y_hat_conf) if not np.isnan(Y_hat_conf) else float("nan")
+                err_rel_y = (
+                    100.0 * err_y / abs(Y_hat_conf)
+                    if (not np.isnan(err_y) and Y_hat_conf not in [0.0, np.nan])
+                    else float("nan")
                 )
+                err_sn = abs(sn_conf_mean - eta_hat_conf) if not np.isnan(eta_hat_conf) else float("nan")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown(
+                        f"""
+                        <div style="text-align:center; margin: 14px 0 8px;">
+                          <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
+                                      border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
+                            <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
+                              {var_label}: Média observada × Predito
+                            </div>
+                            <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
+                              Média observada: <strong style="font-size:17px;">{("n/d" if np.isnan(y_conf_mean) else f"{y_conf_mean:.4f}")}</strong><br/>
+                              Predito: <strong style="font-size:17px;">{("n/d" if np.isnan(Y_hat_conf) else f"{Y_hat_conf:.4f}")}</strong>
+                            </div>
+                            <div style="font-size:15px; color:#374151; line-height:1.35;">
+                              Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_y) else f"{err_y:.4f}")}</strong><br/>
+                              Erro relativo: <strong style="font-size:17px;">{("n/d" if np.isnan(err_rel_y) else f"{err_rel_y:.2f}%")}</strong>
+                            </div>
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+
+                    with col2:
+                        st.markdown(
+                            f"""
+                            <div style="text-align:center; margin: 14px 0 8px;">
+                              <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
+                                          border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
+                                <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
+                                  S/N (dB) observado vs Predito
+                                </div>
+                                <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
+                                  S/N observado: <strong style="font-size:17px;">{("n/d" if np.isnan(sn_conf_mean) else f"{sn_conf_mean:.4f} dB")}</strong><br/>
+                                  Predito: <strong style="font-size:17px;">{("n/d" if np.isnan(eta_hat_conf) else f"{eta_hat_conf:.4f} dB")}</strong>
+                                </div>
+                                <div style="font-size:15px; color:#374151; line-height:1.35;">
+                                  Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong>
+                                </div>
+                              </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
         
         except Exception as e:
