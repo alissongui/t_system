@@ -1683,10 +1683,10 @@ if st.session_state.get('df_experimentos') is not None:
         
                     if st.toggle("🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴", value=False, key="show_anova_help"):
                         st.markdown(r"""
-                        A ANOVA (Análise de Variância) aqui considera a razão S/N de cada ensaio como resposta
+                        A ANOVA (Análise de Variância) aqui considera a **razão S/N de cada ensaio** como resposta
                         e decompõe a soma de quadrados total em:
         
-                        - **Soma de Quadrados do Fator**: quanto cada fator contribui para a variação de S/N;  
+                        - **Soma de Quadrados do Fator** ($SQ\_k$): quanto cada fator contribui para a variação de S/N;  
                         - **Soma de Quadrados de Erro**: variação não explicada pelos efeitos principais;  
                         - **Soma de Quadrados Total**: variação total da S/N em torno da média global.
         
