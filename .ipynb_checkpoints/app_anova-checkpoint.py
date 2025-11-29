@@ -1694,24 +1694,43 @@ if st.session_state.get('df_experimentos') is not None:
                         A ANOVA (Análise de Variância) aqui considera a **razão S/N de cada ensaio** como resposta
                         e decompõe a soma de quadrados total em:
         
-                        - **Soma de Quadrados do Fator** ($SQ\_k$): quanto cada fator contribui para a variação de S/N;  
-                        - **Soma de Quadrados de Erro**: variação não explicada pelos efeitos principais;  
-                        - **Soma de Quadrados Total**: variação total da S/N em torno da média global.
+                        - **Soma de Quadrados do Fator** ($SQ_k$): quanto cada fator $k$ contribui para a variação de S/N;  
+                        - **Soma de Quadrados de Erro** $(SQ_{\textrm{erro}})$: variação não explicada pelos efeitos principais;  
+                        - **Soma de Quadrados Total** $(SQ_{\textrm{total}})$: variação total da S/N em torno da média global.
         
                         Como o planejamento é ortogonal, a contribuição de cada fator é calculada por:
                         """)
                         st.latex(r"""
-                        SS_k \;=\; \sum_{\ell} n_{k,\ell}\,\bigl(\overline{\mathrm{S/N}}_{k,\ell}
+                        SQ_k \;=\; \sum_{\ell} n_{k,\ell}\,\bigl(\overline{\mathrm{S/N}}_{k,\ell}
                         - \overline{\mathrm{S/N}}_{\text{global}}\bigr)^2
                         """)
                         st.markdown(r"""
                         em que $\overline{\mathrm{S/N}}_{k,\ell}$ é a média de S/N no nível $\ell$ do fator $k$
                         e $n_{k,\ell}$ é o número de ensaios nesse nível.
-        
-                        Quando há graus de liberdade de erro disponíveis, obtêm-se:
-                        - $QM_k = SS_k / gl_k$  
-                        - $QM_{erro} = SS_{erro} / gl_{erro}$  
-                        - $F = QM_k / QM_{erro}$ (e opcionalmente um p-valor, se o pacote SciPy estiver disponível).
+                        """)
+                            
+                        st.markdown(r"""
+                            ### 📐 Termos usados na tabela ANOVA
+                            A tabela exibida pelo aplicativo contém as seguintes colunas: 
+                            - **GL (graus de liberdade)**  
+                              Para um fator com $L$ níveis: $$GL = L - 1$$  
+                              Para o erro:  $$GL_{\text{erro}} = GL_{\text{total}} - \sum_k GL_k$$
+
+                           - **SQ (Soma de quadrados)**  Quantidade de variação explicada por cada fonte.  
+
+                           - **QM (Quadrado Médio)**  É a variância média explicada pela fonte:  
+                              $$QM_k = \frac{SQ_k}{GL_k}\ \ $$   e   $$\ \ QM_{\text{erro}} = \frac{SQ_{\text{erro}}}{GL_{\text{erro}}}$$  
+
+                           - **F (estatística F de Fisher)**  Mede o quanto a variância explicada pelo fator excede a variância residual:  $$F_k = \frac{QM_k}{QM_{\text{erro}}}$$  
+
+                           - **p-valor**  Probabilidade de observar um valor de $F_k$ tão grande assumindo hipótese nula:   $$p_k = P\left(F_{GL_k,\,GL_{\text{erro}}} \ge F_k\right)$$  
+                              Fatores com $p_k < 0{,}05$ são considerados **estatisticamente significativos**.
+
+                           - **Contribuição (%)**  Mede a importância relativa do fator na variação total:  
+                        """)
+                        st.latex(r"""
+                            \text{Contribuição}_k(\%) \;=\;
+                            100 \cdot \frac{SQ_k}{SQ_{\text{total}}}
                         """)
         
                                         # Botão para ativar/rodar a ANOVA
