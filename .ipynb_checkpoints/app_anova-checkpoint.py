@@ -1618,7 +1618,14 @@ if st.session_state.get('df_experimentos') is not None:
                     if (not np.isnan(err_y) and Y_hat_conf not in [0.0, np.nan])
                     else float("nan")
                 )
+
                 err_sn = abs(sn_conf_mean - eta_hat_conf) if not np.isnan(eta_hat_conf) else float("nan")
+                
+                err_rel_sn = (
+                    100.0 * err_sn / abs(eta_hat_conf)
+                    if (not np.isnan(err_sn) and not np.isnan(eta_hat_conf) and eta_hat_conf != 0.0)
+                    else float("nan")
+                )
 
                 col1, col2 = st.columns(2)
 
@@ -1629,7 +1636,7 @@ if st.session_state.get('df_experimentos') is not None:
                           <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
                                       border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
                             <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
-                              {var_label}: Média observada × Predito
+                              {var_label}: Média observada vs Média Predita
                             </div>
                             <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
                               Média observada: <strong style="font-size:17px;">{("n/d" if np.isnan(y_conf_mean) else f"{y_conf_mean:.4f}")}</strong><br/>
@@ -1653,14 +1660,15 @@ if st.session_state.get('df_experimentos') is not None:
                               <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
                                           border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
                                 <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
-                                  S/N (dB) observado vs Predito
+                                  S/N (dB) observado vs S/N Predito
                                 </div>
                                 <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
                                   S/N observado: <strong style="font-size:17px;">{("n/d" if np.isnan(sn_conf_mean) else f"{sn_conf_mean:.4f} dB")}</strong><br/>
                                   Predito: <strong style="font-size:17px;">{("n/d" if np.isnan(eta_hat_conf) else f"{eta_hat_conf:.4f} dB")}</strong>
                                 </div>
                                 <div style="font-size:15px; color:#374151; line-height:1.35;">
-                                  Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong>
+                                  Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong><br/>
+                                  Erro relativo: <strong style="font-size:17px;">{("n/d" if np.isnan(err_rel_sn) else f"{err_rel_sn:.2f}%")}</strong>
                                 </div>
                               </div>
                             </div>

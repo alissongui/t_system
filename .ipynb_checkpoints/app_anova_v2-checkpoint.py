@@ -9,6 +9,95 @@ import io
 from itertools import product
 from datetime import datetime
 
+@st.cache_resource
+def build_effects_figure(per_factor_tables, factor_cols, grand_mean):
+    """
+    Monta a figura de efeitos médios por fator (grande, com vários subplots).
+    Esta função é cacheada: só será recalculada se os dados mudarem.
+    """
+    # Até 4 gráficos por linha
+    MAX_COLS = 4
+    cols = MAX_COLS if len(factor_cols) >= MAX_COLS else (len(factor_cols) if len(factor_cols) > 0 else 1)
+    rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
+    fig_all = make_subplots(rows=rows, cols=cols, subplot_titles=factor_cols)
+
+    # ✅ Mesma escala Y em todos os subplots (inclui a média global)
+    all_y = []
+    for _fac in factor_cols:
+        _df = per_factor_tables[_fac].copy().reset_index(drop=True)
+        all_y.extend(_df["S/N médio (dB)"].astype(float).tolist())
+    if not math.isnan(grand_mean):
+        all_y.append(float(grand_mean))
+
+    if len(all_y) > 0:
+        ymin, ymax = min(all_y), max(all_y)
+        pad = 0.1 * (ymax - ymin if ymax > ymin else (abs(ymax) if ymax != 0 else 1.0))
+        y_range = [ymin - pad, ymax + pad]
+    else:
+        y_range = None
+
+    r, c = 1, 1
+    for fac in factor_cols:
+        fac_df = per_factor_tables[fac].copy().reset_index(drop=True)
+
+        # X categórico: evita marcas 1.5, 2.5 etc.
+        num_levels = len(fac_df)
+        x_cat = [str(i) for i in range(1, num_levels + 1)]
+        y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
+
+        # Curva do fator
+        fig_all.add_trace(
+            go.Scatter(
+                x=x_cat, y=y_vals,
+                mode="lines+markers",
+                name=f"{fac}",
+                showlegend=False,
+                hovertemplate="Nível=%{x}<br>S/N médio=%{y:.3f} dB<extra></extra>",
+            ),
+            row=r, col=c
+        )
+
+        # Linha da média global em TODOS os subplots (legenda só no 1º)
+        if not math.isnan(grand_mean):
+            fig_all.add_trace(
+                go.Scatter(
+                    x=x_cat, y=[grand_mean] * len(x_cat),
+                    mode="lines",
+                    name="Média global",
+                    line=dict(dash="dash"),
+                    showlegend=(r == 1 and c == 1),
+                    hovertemplate="Média global=%{y:.3f} dB<extra></extra>",
+                ),
+                row=r, col=c
+            )
+
+        # Eixos: Y rotulado só no 1º subplot; todos com o mesmo range
+        if r == 1 and c == 1:
+            fig_all.update_yaxes(title_text="S/N médio (dB)", range=y_range, row=r, col=c)
+        else:
+            fig_all.update_yaxes(title_text=None, range=y_range, row=r, col=c)
+
+        # X categórico e título
+        fig_all.update_xaxes(
+            title_text="Níveis dos parâmetros",
+            type="category",          # força eixo categórico
+            tickmode="array",         # usa ticks explícitos
+            tickvals=x_cat,           # ["1","2","3",...]
+            ticktext=x_cat,           # rótulos iguais aos valores
+            categoryorder="category ascending",
+            row=r, col=c
+        )
+
+        # avança até 'cols' colunas por linha (máx 4)
+        c += 1
+        if c > cols:
+            c = 1
+            r += 1
+
+    fig_all.update_layout(height=280 * rows, margin=dict(l=10, r=10, t=50, b=10))
+    return fig_all
+
+
 # (depois dos imports já existentes)
 try:
     from scipy.stats import f as f_dist
@@ -374,18 +463,54 @@ if st.session_state.get('df_experimentos') is not None:
                     mean_y = np.nanmean(rep_values, axis=1)
                     std_y = np.nanstd(rep_values, axis=1, ddof=1)
 
-                    # Funções S/N (locais)
+                    # Funções S/N (locais)  <<< SUBSTITUIR PELO BLOCO ABAIXO >>>
+
+                                        # ================================
+                    # Funções S/N (locais) – robustas
+                    # ================================
+                    def _to_1d_array(vals):
+                        """
+                        Converte qualquer coisa (lista, lista de listas, array, etc.)
+                        em um array 1D de floats, removendo NaN.
+                        """
+                        v = np.asarray(vals, dtype=float).ravel()
+                        return v[~np.isnan(v)]
+
                     def sn_larger_better(vals):
-                        vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log10(np.mean(1.0/(vals**2)))
-                    def sn_smaller_better(vals):
-                        vals = np.asarray(vals, dtype=float)
-                        return -10.0 * np.log10(np.mean(vals**2))
-                    def sn_nominal_best(vals, target):
-                        vals = np.asarray(vals, dtype=float)
-                        if vals.size < 2:
+                        v = _to_1d_array(vals)
+                        if v.size == 0:
                             return np.nan
-                        return 10.0 * np.log10((target**2) / np.var(vals, ddof=1))
+                        # -10 log10( (1/n) ∑ (1 / y_i^2) )
+                        return -10.0 * np.log10(np.mean(1.0 / (v ** 2)))
+
+                    def sn_smaller_better(vals):
+                        v = _to_1d_array(vals)
+                        if v.size == 0:
+                            return np.nan
+                        # -10 log10( (1/n) ∑ y_i^2 )
+                        return -10.0 * np.log10(np.mean(v ** 2))
+
+                    def sn_nominal_best(vals, target):
+                        v = _to_1d_array(vals)
+                        # precisa de pelo menos 2 repetições para variância
+                        if v.size < 2:
+                            return np.nan
+
+                        # Se alvo não for informado ou for 0, usa a média das observações
+                        if target is None or (isinstance(target, (int, float)) and target == 0):
+                            m = float(np.mean(v))
+                        else:
+                            # garante que o alvo é escalar numérico
+                            m = float(target)
+
+                        s2 = float(np.var(v, ddof=1))
+                        if s2 <= 0:
+                            # evita divisão por zero
+                            return np.nan
+
+                        # 10 log10(m^2 / s^2)
+                        return 10.0 * np.log10((m ** 2) / s2)
+
                     def compute_snr(vals, tipo, target=None):
                         if tipo == "Maior é melhor":
                             return sn_larger_better(vals)
@@ -394,6 +519,53 @@ if st.session_state.get('df_experimentos') is not None:
                         if tipo == "Nominal é melhor":
                             return sn_nominal_best(vals, target)
                         return np.nan
+
+                    # ================================
+                    # Cálculo de S/N por corrida
+                    # ================================
+
+                    # Lista de réplicas por corrida (cada item é um array 1D por experimento)
+                    replicates = [rep_values[i, ~np.isnan(rep_values[i, :])] 
+                                  for i in range(rep_values.shape[0])]
+
+                    # S/N das réplicas (cada elemento é um escalar ou NaN)
+                    sn_reps = [compute_snr(v, sn_tipo, nominal_target) for v in replicates]
+
+                    # S/N da média (usado apenas para maior/menor é melhor;
+                    # para nominal é melhor deixamos como NaN, para evitar confusão)
+                    sn_mean = []
+                    for m in mean_y:
+                        if sn_tipo == "Nominal é melhor":
+                            sn_mean.append(np.nan)
+                        else:
+                            sn_mean.append(compute_snr(np.array([m]), sn_tipo, nominal_target))
+
+                    # Tabela Resultado por Ensaio
+                    sn_table = pd.DataFrame({
+                        "Experimento": df_plan["Experimento"],
+                        f"Média de {var_label}": mean_y.astype(float),
+                        f"S/N das réplicas ({var_label}) [dB]": sn_reps,
+                    })
+
+                    st.markdown("### 📊 Resultado por ensaio")
+                    st.dataframe(sn_table, use_container_width=True, hide_index=True)
+
+                    # -------------------------------------------------
+                    # Médias globais (Y e S/N das réplicas)
+                    # -------------------------------------------------
+                    grand_mean = np.nanmean(sn_reps)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.metric(
+                            label=f"Média global de {var_label}",
+                            value=f"{np.nanmean(mean_y):.3f}"
+                        )
+                    with c2:
+                        st.metric(
+                            label="Média global de S/N (réplicas)",
+                            value=f"{grand_mean:.3f} dB"
+                        )
+
 
                     # Lista de réplicas por corrida
                     replicates = [rep_values[i, ~np.isnan(rep_values[i, :])] for i in range(rep_values.shape[0])]
@@ -557,87 +729,12 @@ if st.session_state.get('df_experimentos') is not None:
                     # =============================================
                     st.subheader("📊 Efeitos médios — gráficos por fator")
 
-                    # Até 4 gráficos por linha
-                    MAX_COLS = 4
-                    cols = MAX_COLS if len(factor_cols) >= MAX_COLS else (len(factor_cols) if len(factor_cols) > 0 else 1)
-                    rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
-                    fig_all = make_subplots(rows=rows, cols=cols, subplot_titles=factor_cols)
+                    # Usa a função cacheada para montar a figura de efeitos médios
+                    fig_all = build_effects_figure(per_factor_tables, factor_cols, grand_mean)
                     
-                    # ✅ Mesma escala Y em todos os subplots (inclui a média global)
-                    all_y = []
-                    for _fac in factor_cols:
-                        _df = per_factor_tables[_fac].copy().reset_index(drop=True)
-                        all_y.extend(_df["S/N médio (dB)"].astype(float).tolist())
-                    if not math.isnan(grand_mean):
-                        all_y.append(float(grand_mean))
-                    
-                    if len(all_y) > 0:
-                        ymin, ymax = min(all_y), max(all_y)
-                        pad = 0.1 * (ymax - ymin if ymax > ymin else (abs(ymax) if ymax != 0 else 1.0))
-                        y_range = [ymin - pad, ymax + pad]
-                    else:
-                        y_range = None
-                    
-                    r, c = 1, 1
-                    for fac in factor_cols:
-                        fac_df = per_factor_tables[fac].copy().reset_index(drop=True)
-                    
-                        # X categórico: evita marcas 1.5, 2.5 etc.
-                        num_levels = len(fac_df)
-                        x_cat = [str(i) for i in range(1, num_levels + 1)]
-                        y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
-                    
-                        # Curva do fator
-                        fig_all.add_trace(
-                            go.Scatter(
-                                x=x_cat, y=y_vals,
-                                mode="lines+markers",
-                                name=f"{fac}",
-                                showlegend=False,
-                                hovertemplate="Nível=%{x}<br>S/N médio=%{y:.3f} dB<extra></extra>",
-                            ),
-                            row=r, col=c
-                        )
-                    
-                        # Linha da média global em TODOS os subplots (legenda só no 1º)
-                        if not math.isnan(grand_mean):
-                            fig_all.add_trace(
-                                go.Scatter(
-                                    x=x_cat, y=[grand_mean]*len(x_cat),
-                                    mode="lines",
-                                    name="Média global",
-                                    line=dict(dash="dash"),
-                                    showlegend=(r == 1 and c == 1),
-                                    hovertemplate="Média global=%{y:.3f} dB<extra></extra>",
-                                ),
-                                row=r, col=c
-                            )
-                    
-                        # Eixos: Y rotulado só no 1º subplot; todos com o mesmo range
-                        if r == 1 and c == 1:
-                            fig_all.update_yaxes(title_text="S/N médio (dB)", range=y_range, row=r, col=c)
-                        else:
-                            fig_all.update_yaxes(title_text=None, range=y_range, row=r, col=c)
-                    
-                        # X categórico e título
-                        fig_all.update_xaxes(
-                            title_text="Níveis dos parâmetros",
-                            type="category",          # força eixo categórico
-                            tickmode="array",         # usa ticks explícitos
-                            tickvals=x_cat,           # ["1","2","3",...]
-                            ticktext=x_cat,           # rótulos iguais aos valores
-                            categoryorder="category ascending",
-                            row=r, col=c
-                        )
-                    
-                        # avança até 'cols' colunas por linha (máx 4)
-                        c += 1
-                        if c > cols:
-                            c = 1
-                            r += 1
-                    
-                    fig_all.update_layout(height=280*rows, margin=dict(l=10, r=10, t=50, b=10))
+                    # Exibe o gráfico na tela
                     st.plotly_chart(fig_all, use_container_width=True)
+
 
 
                     # ============================
@@ -1618,14 +1715,7 @@ if st.session_state.get('df_experimentos') is not None:
                     if (not np.isnan(err_y) and Y_hat_conf not in [0.0, np.nan])
                     else float("nan")
                 )
-
                 err_sn = abs(sn_conf_mean - eta_hat_conf) if not np.isnan(eta_hat_conf) else float("nan")
-                
-                err_rel_sn = (
-                    100.0 * err_sn / abs(eta_hat_conf)
-                    if (not np.isnan(err_sn) and not np.isnan(eta_hat_conf) and eta_hat_conf != 0.0)
-                    else float("nan")
-                )
 
                 col1, col2 = st.columns(2)
 
@@ -1636,7 +1726,7 @@ if st.session_state.get('df_experimentos') is not None:
                           <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
                                       border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
                             <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
-                              {var_label}: Média observada vs Média Predita
+                              {var_label}: Média observada × Predito
                             </div>
                             <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
                               Média observada: <strong style="font-size:17px;">{("n/d" if np.isnan(y_conf_mean) else f"{y_conf_mean:.4f}")}</strong><br/>
@@ -1660,15 +1750,14 @@ if st.session_state.get('df_experimentos') is not None:
                               <div style="display:inline-block; padding:16px 26px; background:#eff6ff;
                                           border-radius:12px; box-shadow:0 3px 12px rgba(0,0,0,0.14);">
                                 <div style="font-size:17px; color:#1d4ed8; font-weight:700; margin-bottom:6px;">
-                                  S/N (dB) observado vs S/N Predito
+                                  S/N (dB) observado vs Predito
                                 </div>
                                 <div style="font-size:15px; color:#1f2937; margin-bottom:6px; line-height:1.35;">
                                   S/N observado: <strong style="font-size:17px;">{("n/d" if np.isnan(sn_conf_mean) else f"{sn_conf_mean:.4f} dB")}</strong><br/>
                                   Predito: <strong style="font-size:17px;">{("n/d" if np.isnan(eta_hat_conf) else f"{eta_hat_conf:.4f} dB")}</strong>
                                 </div>
                                 <div style="font-size:15px; color:#374151; line-height:1.35;">
-                                  Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong><br/>
-                                  Erro relativo: <strong style="font-size:17px;">{("n/d" if np.isnan(err_rel_sn) else f"{err_rel_sn:.2f}%")}</strong>
+                                  Erro absoluto: <strong style="font-size:17px;">{("n/d" if np.isnan(err_sn) else f"{err_sn:.4f} dB")}</strong>
                                 </div>
                               </div>
                             </div>
