@@ -1820,7 +1820,9 @@ if st.session_state.get('df_experimentos') is not None:
 
                 st.markdown("---")
                                     # Botão para ativar/rodar a ANOVA
-                if st.button("📊 Calcular ANOVA (S/N)", key="btn_anova_sn"):
+                # Botão para ativar/rodar a ANOVA
+                if st.button("📊 Calcular ANOVA (S/N)", key="btn_anova_sn", type="primary"):
+
 
                     # Vetor de S/N por ensaio
                     y_sn = df_effects[sn_col].to_numpy(dtype=float)
@@ -2145,10 +2147,109 @@ if st.session_state.get('df_experimentos') is not None:
                         "`pip install scipy`"
                     )
 
-    
+                st.markdown("---")
                     
     
                             
+                                # =============================================
+                # 🔗 Gráficos de interação entre fatores (S/N)
+                # =============================================
+                st.markdown("---")
+                st.subheader("🔗 Gráficos de interação entre fatores (S/N)")
+                
+                if len(factor_cols) < 2:
+                    st.info("São necessários pelo menos dois fatores para visualizar interações.")
+                else:
+                    st.caption(
+                        "Selecione um fator para o eixo X e outro para formar as curvas. "
+                        "O gráfico mostra a média da razão S/N para cada combinação de níveis."
+                    )
+                
+                    # Escolha dos fatores
+                    fac_x = st.selectbox(
+                        "Fator no eixo X:",
+                        factor_cols,
+                        index=0,
+                        key="inter_x"
+                    )
+                
+                    fac_lines = st.selectbox(
+                        "Fator para as curvas:",
+                        [f for f in factor_cols if f != fac_x],
+                        index=0,
+                        key="inter_lines"
+                    )
+                
+                    # Prepara dados
+                    tmp = df_effects.copy()
+                    tmp[fac_x] = tmp[fac_x].astype(str)
+                    tmp[fac_lines] = tmp[fac_lines].astype(str)
+                
+                    # Média de S/N por combinação (fac_x, fac_lines)
+                    mean_inter = (
+                        tmp
+                        .groupby([fac_x, fac_lines])[sn_col]
+                        .mean()
+                        .reset_index()
+                    )
+                
+                    # Ordenação "natural" dos níveis (1, 2, 3, ...)
+                    def _nat_sort(vals):
+                        try:
+                            return sorted(vals, key=lambda v: int(v))
+                        except Exception:
+                            return sorted(vals)
+                
+                    x_levels = _nat_sort(mean_inter[fac_x].unique().tolist())
+                    line_levels = _nat_sort(mean_inter[fac_lines].unique().tolist())
+                
+                    # Constrói figura
+                    fig_int = go.Figure()
+                
+                    for lvl in line_levels:
+                        df_line = mean_inter[mean_inter[fac_lines] == lvl]
+                        # Garante a ordem dos níveis no eixo X
+                        y_vals = []
+                        for xv in x_levels:
+                            sub = df_line[df_line[fac_x] == xv]
+                            if not sub.empty:
+                                y_vals.append(float(sub[sn_col].iloc[0]))
+                            else:
+                                y_vals.append(np.nan)
+                
+                        fig_int.add_trace(
+                            go.Scatter(
+                                x=x_levels,
+                                y=y_vals,
+                                mode="lines+markers",
+                                name=f"{fac_lines} = {lvl}",
+                                hovertemplate=(
+                                    f"{fac_x}=%{{x}}<br>{fac_lines}={lvl}<br>"
+                                    f"S/N médio=%{{y:.3f}} dB<extra></extra>"
+                                ),
+                            )
+                        )
+                
+                    # Linha da média global de S/N, se quiser manter o padrão
+                    if not math.isnan(grand_mean):
+                        fig_int.add_trace(
+                            go.Scatter(
+                                x=x_levels,
+                                y=[grand_mean] * len(x_levels),
+                                mode="lines",
+                                name="Média global (S/N)",
+                                line=dict(dash="dash"),
+                                hovertemplate="Média global=%{y:.3f} dB<extra></extra>",
+                            )
+                        )
+                
+                    fig_int.update_layout(
+                        xaxis_title=f"Níveis de {fac_x}",
+                        yaxis_title="S/N médio (dB)",
+                        margin=dict(l=10, r=10, t=40, b=40),
+                    )
+                
+                    st.plotly_chart(fig_int, use_container_width=True)
 
         
         
