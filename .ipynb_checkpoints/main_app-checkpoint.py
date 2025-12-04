@@ -405,58 +405,106 @@ def section_results():
 
     st.markdown("---")
 
-    # ======================================================
+        # ======================================================
     # Função 1 — Upload dos Resultados
     # ======================================================
     def upload_resultados():
-        st.subheader("📤 Upload de Resultados Experimentais (réplicas)")
+        st.subheader("📤 Upload de Resultados Experimentais (Réplicas/triplicatas)")
+        var_label_local = st.session_state.get("var_label", "Variável de Interesse")
+
+        # Tipo de razão S/N (igual ao app_regressao)
         sn_tipo = st.selectbox(
-            "Tipo de razão S/N:", ["Maior é melhor", "Menor é melhor", "Nominal é melhor"]
+            "Tipo de razão Sinal-Ruído (S/N) (Taguchi)",
+            options=["Maior é melhor", "Menor é melhor", "Nominal é melhor"],
+            index=0,
         )
         alvo_nominal = None
         if sn_tipo == "Nominal é melhor":
-            alvo_nominal = st.number_input("Alvo (m)", value=0.0)
+            alvo_nominal = st.number_input("Alvo (m)", value=0.0, help="Para Nominal é melhor")
 
-        upl = st.file_uploader("Carregar arquivo de resultados", type=["xlsx", "csv"])
+        # Fórmula em LaTeX (igual ao app_regressao)
+        sn_formulas = {
+            "Maior é melhor":  r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} \dfrac{1}{y_i^{2}} \right)",
+            "Menor é melhor":  r"S/N = -10 \log_{10} \left( \dfrac{1}{n} \sum_{i=1}^{n} y_i^{2} \right)",
+            "Nominal é melhor": r"S/N = 10 \log_{10} \left( \dfrac{m^{2}}{s^{2}} \right) \quad (m = \bar{y} \text{ se alvo não informado})"
+        }
+        st.markdown("**Fórmula da Razão Sinal-Ruído (S/N) selecionada:**")
+        st.latex(sn_formulas[sn_tipo])
+
+        # Upload do arquivo de resultados
+        upl = st.file_uploader(
+            "**Carregar arquivo de resultados (réplicas do experimento)**",
+            type=["xlsx", "csv"],
+            key="resultados_upl",
+        )
         if not upl:
             return None, None, sn_tipo, alvo_nominal
 
         # --------- Leitura ---------
         if upl.name.endswith(".csv"):
-            df_res = pd.read_csv(upl, sep=";")
+            df_resultados = pd.read_csv(upl, sep=";")
         else:
-            df_res = pd.read_excel(upl)
+            df_resultados = pd.read_excel(upl)
 
         # Padroniza nome da coluna "Experimento"
         exp_col = None
-        for c in df_res.columns:
-            if str(c).strip().lower() in ["experimento", "run", "exp", "experiments"]:
+        for c in df_resultados.columns:
+            if str(c).strip().lower() in {"experimento", "experiments", "exp", "run"}:
                 exp_col = c
                 break
 
         if exp_col is None:
-            st.error("❌ O arquivo precisa conter a coluna 'Experimento'.")
+            st.error("❌ O arquivo de resultados precisa ter a coluna 'Experimento'.")
             return None, None, sn_tipo, alvo_nominal
 
-        df_res = df_res.rename(columns={exp_col: "Experimento"})
+        df_res = df_resultados.copy()
+        df_res.rename(columns={exp_col: "Experimento"}, inplace=True)
+
+        # Colunas numéricas (réplicas)
+        num_cols = [
+            c for c in df_res.columns
+            if c != "Experimento" and pd.api.types.is_numeric_dtype(df_res[c])
+        ]
+        if len(num_cols) == 0:
+            st.error("❌ Nenhuma coluna numérica de resposta encontrada.")
+            return None, None, sn_tipo, alvo_nominal
 
         # ======= Validações =======
-        n_plan = len(df_plan)
-        n_res = df_res["Experimento"].nunique()
-        if n_res != n_plan:
-            st.error(f"❌ Número de experimentos no arquivo ({n_res}) não bate com o plano ({n_plan}).")
+        n_exp_plan = len(df_plan)
+        n_exp_res = df_res["Experimento"].nunique()
+        dups = df_res["Experimento"][df_res["Experimento"].duplicated()].unique()
+        if len(dups) > 0:
+            st.error(f"❌ Há experimentos repetidos: {sorted(dups)}")
             return None, None, sn_tipo, alvo_nominal
 
-        # coleta colunas numéricas (réplicas)
-        num_cols = [c for c in df_res.columns if c != "Experimento"]
+        if n_exp_res != n_exp_plan:
+            st.error(
+                f"❌ Resultados possuem {n_exp_res} experimentos; plano tem {n_exp_plan}."
+            )
+            return None, None, sn_tipo, alvo_nominal
 
-        # Join com plano
+        esperados = set(range(1, n_exp_plan + 1))
+        presentes = set(df_res["Experimento"])
+        faltando = sorted(esperados - presentes)
+        if faltando:
+            st.error(f"❌ Faltando experimentos: {faltando}")
+            return None, None, sn_tipo, alvo_nominal
+
+        # Mensagens de sucesso + mostra a matriz de resultados carregada
+        st.success("✅ Número de experimentos confere com a matriz experimental!")
+        st.success("✅ Arquivo de resultados carregado com sucesso!")
+        st.dataframe(df_res, use_container_width=True, hide_index=True)
+        st.markdown("---")
+
+        # Join com o plano (df_plan) — matriz combinada
         df_join = df_plan.merge(df_res, on="Experimento", how="left")
+
         return df_join, num_cols, sn_tipo, alvo_nominal
 
+    # 🔹 Aqui era onde estava faltando a chamada:
     df_join, num_cols, sn_tipo, alvo_nominal = upload_resultados()
 
-    # Nada a fazer ainda
+    # Se o usuário ainda não fez upload, para por aqui
     if df_join is None:
         return
 
@@ -494,11 +542,97 @@ def section_results():
             else:
                 SNR.append(sn_nominal(vals, alvo_nominal))
 
-        df_join["_Ymean"] = mean_y
-        df_join["_SN"] = SNR
-        return df_join, mean_y, SNR
+        df_local = df_join.copy()
+        df_local["_Ymean"] = mean_y
+        df_local["_SN"] = SNR
+
+        return df_local, mean_y, SNR
 
     df_join, mean_y, SNR = calcular_sn()
+
+
+
+    # Nada a fazer ainda
+    if df_join is None:
+        return
+
+    # ======================================================
+    # Função 2 — Cálculo de médias e S/N
+    # ======================================================
+    def calcular_sn():
+        # usa o df_join do escopo externo apenas para leitura
+        reps = df_join[num_cols].to_numpy(dtype=float)
+
+        # Médias Y
+        mean_y = np.nanmean(reps, axis=1)
+
+        # Desvios
+        std_y = np.nanstd(reps, axis=1, ddof=1)
+
+        # --- Funções S/N ---
+        def sn_larger(vals):
+            return -10 * np.log10(np.mean(1.0 / (vals**2)))
+
+        def sn_smaller(vals):
+            return -10 * np.log10(np.mean(vals**2))
+
+        def sn_nominal(vals, target):
+            if len(vals) < 2:
+                return np.nan
+            return 10 * np.log10((target**2) / np.var(vals, ddof=1))
+
+        SNR = []
+        for row in reps:
+            vals = row[~np.isnan(row)]
+            if sn_tipo == "Maior é melhor":
+                SNR.append(sn_larger(vals))
+            elif sn_tipo == "Menor é melhor":
+                SNR.append(sn_smaller(vals))
+            else:
+                SNR.append(sn_nominal(vals, alvo_nominal))
+
+        # 🔹 trabalha em uma cópia, não no df_join “de fora”
+        df_local = df_join.copy()
+        df_local["_Ymean"] = mean_y
+        df_local["_SN"] = SNR
+
+        return df_local, mean_y, SNR
+
+
+    df_join, mean_y, SNR = calcular_sn()
+
+        # ======================================================
+    # Resumo: resultado por ensaio + médias globais
+    # (comportamento similar ao app_regressao)
+    # ======================================================
+    st.markdown("### 📊 Resultado por ensaio")
+
+    sn_table = pd.DataFrame({
+        "Experimento": df_plan["Experimento"],
+        f"Média de {var_label}": mean_y.astype(float),
+        f"S/N das réplicas ({var_label}) [dB]": SNR,
+    })
+
+    st.dataframe(sn_table, use_container_width=True, hide_index=True)
+
+    # Médias globais
+    Y_bar = float(np.nanmean(mean_y))
+    SN_bar = float(np.nanmean(SNR))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric(
+            label=f"Média global de {var_label}",
+            value=f"{Y_bar:.3f}",
+        )
+    with c2:
+        st.metric(
+            label="Média global de S/N (réplicas)",
+            value=f"{SN_bar:.3f} dB",
+        )
+
+    st.markdown("---")
+
 
     # ======================================================
     # Pré-cálculo global para todas as funções da aba
@@ -526,13 +660,103 @@ def section_results():
     # Função 3 — Efeitos + Gráficos
     # ======================================================
     def mostrar_efeitos_e_graficos():
-        st.subheader("📈 Efeitos principais na razão S/N")
-    
-        for f in factor_cols:
-            st.write(f"### Fator: {f}")
-            st.dataframe(per_factor[f], use_container_width=True)
-    
+        st.subheader("📈 Efeitos principais na razão S/N (médias por nível)")
+
+        # 🔀 Toggle com a explicação do efeito (igual ao app_regressao)
+        if st.toggle("🔴🔴🔴 O que é o 'efeito'? (clique para ver) 🔴🔴🔴",
+                     value=False,
+                     key="show_efeito"):
+            st.markdown(
+                r"""
+                O **efeito** de um fator $k$ no nível $\ell$ é definido como o desvio
+                da resposta média da razão Sinal-Ruído (S/N), obtida nesse nível específico,
+                em relação à média global do experimento. Em outros termos, para cada
+                **fator** denotado por $k$ e cada **nível** $\ell$ desse fator,
+                define-se o efeito como a diferença entre a média de S/N nesse nível
+                e a média global:
+                """
+            )
+            st.latex(
+                r"\text{Efeito}(k,\ell)=\overline{\mathrm{S/N}}_{k,\ell}"
+                r"-\overline{\mathrm{S/N}}_{\text{global}}"
+            )
+            st.markdown(
+                r"""
+                **em que,**  
+                • $k \in \{1,\dots,K\}$ é o índice do fator (ex.: Temperatura, Pressão, ...),
+                  sendo $K$ o número total de fatores.  
+
+                • $\ell \in \{1,\dots,L_k\}$ representa o índice do nível do fator $k$,
+                  sendo $L_k$ o número de níveis do respectivo fator. 
+
+                • $\overline{\mathrm{S/N}}_{k,\ell}$: média da razão Sinal-Ruído considerando
+                  apenas os ensaios em que o fator $k$ foi fixado no nível $\ell$.
+
+                • $\overline{\mathrm{S/N}}_{\text{global}}$: média da razão Sinal-Ruído
+                  considerando todos os ensaios do experimento.
+                """
+            )
+
+        st.markdown("---")
+
+        # Vamos usar o df_join com a coluna "_SN" (S/N das réplicas)
+        df_effects = df_join.copy()
+        sn_col = "_SN"
+
+        # Tabelas formatadas por fator (para exibição)
+        per_factor_tables = {}
+
+        for fac in factor_cols:
+            # níveis como string, ordenados naturalmente (1,2,3,...)
+            lvls_in_plan = df_plan[fac].astype(str).unique().tolist()
+            try:
+                order_nat = sorted(lvls_in_plan, key=lambda s: int(s))
+            except Exception:
+                order_nat = sorted(lvls_in_plan)
+
+            tmp = df_effects.copy()
+            tmp[fac] = tmp[fac].astype(str)
+
+            g = (
+                tmp
+                .groupby(fac, as_index=True)[sn_col]
+                .mean()
+                .reindex(order_nat)
+            )
+
+            fac_df = (
+                pd.DataFrame({"Nível": g.index, "S/N médio (dB)": g.values})
+                .reset_index(drop=True)
+            )
+
+            # Garante numérico e calcula Efeito (dB)
+            fac_df["S/N médio (dB)"] = pd.to_numeric(
+                fac_df["S/N médio (dB)"], errors="coerce"
+            )
+            fac_df["Efeito (dB)"] = fac_df["S/N médio (dB)"] - float(grand_mean)
+            fac_df[["S/N médio (dB)", "Efeito (dB)"]] = fac_df[
+                ["S/N médio (dB)", "Efeito (dB)"]
+            ].round(3)
+
+            per_factor_tables[fac] = fac_df
+
+        # Renderiza as tabelas — até 4 fatores por linha
+        COLS_PER_ROW = 4
+        for i in range(0, len(factor_cols), COLS_PER_ROW):
+            bloco = factor_cols[i:i + COLS_PER_ROW]
+            cols = st.columns(len(bloco))
+            for j, fac in enumerate(bloco):
+                with cols[j]:
+                    st.markdown(f"**Fator: {fac}**")
+                    st.dataframe(
+                        per_factor_tables[fac],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+        # Mantém o mesmo retorno de antes (para compatibilidade)
         return per_factor, grand_mean, factor_cols
+
 
 
 
