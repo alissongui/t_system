@@ -676,6 +676,36 @@ def section_results():
     # =============================================
     # 🔖 Abas de resultados
     # =============================================
+
+    st.markdown("""
+    <style>
+
+    /* TODAS as abas (ativa e inativas) */
+    button[role="tab"] {
+        font-size: 24px !important;      /* fonte bem maior */
+        font-weight: 900 !important;     /* negrito forte */
+        padding: 14px 26px !important;   /* mais área clicável */
+        margin-right: 10px !important;
+        border-radius: 12px 12px 0 0 !important;
+        border: none !important;
+        background: #e3e9f7 !important;  /* cinza-azulado claro */
+        color: #0a2d5c !important;       /* azul escuro */
+    }
+
+    /* ABA ATIVA */
+    button[role="tab"][aria-selected="true"] {
+        background: #ffffff !important;  /* fundo branco */
+        color: #000000 !important;       /* texto preto */
+        font-size: 28px !important;      /* ainda maior */
+        font-weight: 900 !important;     /* super negrito */
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+
+
+
     tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
         ["Efeitos principais & Delta", "Interações", "Superfície 3D", "Predições", "Regressão múltipla"]
     )
