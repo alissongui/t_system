@@ -1,0 +1,711 @@
+import streamlit as st
+import numpy as np
+import pandas as pd
+import math
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import plotly.io as pio
+import io
+from itertools import product
+from datetime import datetime
+
+# (se tiver scipy / pyDOE, ficam aqui também)
+
+# =============================================
+# Configuração DA PÁGINA  (TEM QUE SER A PRIMEIRA COISA do Streamlit)
+# =============================================
+st.set_page_config(page_title="TaguchiApp", layout="wide")
+
+st.title("TaguchiApp")
+st.caption(
+    """
+    <div style="font-size:16px; font-weight:bold;">
+        Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.02<br><br>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# aqui embaixo vêm as suas funções: oa_from_name, built_in_catalog, section_factors_and_oa, section_results, etc.
+
+
+# ============================
+# Imports opcionais
+# ============================
+try:
+    from scipy.stats import f as f_dist, t as t_dist
+    HAS_SCIPY = True
+except Exception:
+    HAS_SCIPY = False
+    f_dist = None
+    t_dist = None
+
+try:
+    from pyDOE3 import get_orthogonal_array
+    HAS_PYDOE3 = True
+except Exception:
+    HAS_PYDOE3 = False
+    get_orthogonal_array = None
+
+
+# ============================
+# Utilitários de OA / catálogo
+# ============================
+def built_in_catalog():
+    return {
+        "L4(2^3)"     : {"cols2": 3,  "cols3": 0,  "n": 4},
+        "L8(2^7)"     : {"cols2": 7,  "cols3": 0,  "n": 8},
+        "L9(3^4)"     : {"cols2": 0,  "cols3": 4,  "n": 9},
+        "L12(2^11)"   : {"cols2": 11, "cols3": 0,  "n": 12},
+        "L16(2^15)"   : {"cols2": 15, "cols3": 0,  "n": 16},
+        "L18(2^1 3^7)": {"cols2": 1,  "cols3": 7,  "n": 18},
+        "L27(3^13)"   : {"cols2": 0,  "cols3": 13, "n": 27},
+    }
+
+
+PYDOE3_NAME_MAP = {
+    "L18(2^1 3^7)": "L18(6^1 3^6)",
+    "L27(3^13)":    "L27(2^1 3^12)",
+}
+
+
+def oa_from_name(name: str) -> np.ndarray:
+    # 1) Tenta pyDOE3
+    if HAS_PYDOE3 and get_orthogonal_array is not None:
+        try:
+            lookup = PYDOE3_NAME_MAP.get(name, name)
+            arr = np.asarray(get_orthogonal_array(lookup), dtype=int)
+            # se vier 1/2/3, convertemos para 0/1/2:
+            if arr.min() == 1:
+                arr = arr - 1
+            return arr
+        except Exception:
+            # se der erro no pyDOE3, cai pros fallbacks internos
+            pass
+
+    # 2) Fallbacks internos (0-based)
+    import numpy as np
+
+    if name == "L4(2^3)":
+        return np.array([
+            [0, 0, 0],
+            [0, 1, 1],
+            [1, 0, 1],
+            [1, 1, 0],
+        ], dtype=int)
+
+    if name == "L8(2^7)":
+        return np.array([
+            [0,0,0,0,0,0,0],
+            [0,0,0,1,1,1,1],
+            [0,1,1,0,0,1,1],
+            [0,1,1,1,1,0,0],
+            [1,0,1,0,1,0,1],
+            [1,0,1,1,0,1,0],
+            [1,1,0,0,1,1,0],
+            [1,1,0,1,0,0,1],
+        ], dtype=int)
+
+    if name == "L9(3^4)":
+        return np.array([
+            [0,0,0,0],
+            [0,1,1,1],
+            [0,2,2,2],
+            [1,0,1,2],
+            [1,1,2,0],
+            [1,2,0,1],
+            [2,0,2,1],
+            [2,1,0,2],
+            [2,2,1,0],
+        ], dtype=int)
+
+    if name == "L16(2^15)":
+        arr12 = np.array([
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,2,2,2,2,2,2,2,2],
+            [1,1,1,2,2,2,2,1,1,1,1,2,2,2,2],
+            [1,1,1,2,2,2,2,2,2,2,2,1,1,1,1],
+            [1,2,2,1,1,2,2,1,1,2,2,1,1,2,2],
+            [1,2,2,1,1,2,2,2,2,1,1,2,2,1,1],
+            [1,2,2,2,2,1,1,1,1,2,2,2,2,1,1],
+            [1,2,2,2,2,1,1,2,2,1,1,1,1,2,2],
+            [2,1,2,1,2,1,2,1,2,1,2,1,2,1,2],
+            [2,1,2,1,2,1,2,2,1,2,1,2,1,2,1],
+            [2,1,2,2,1,2,1,1,2,1,2,2,1,2,1],
+            [2,1,2,2,1,2,1,2,1,2,1,1,2,1,2],
+            [2,2,1,1,2,2,1,1,2,2,1,1,2,2,1],
+            [2,2,1,1,2,2,1,2,1,1,2,2,1,1,2],
+            [2,2,1,2,1,1,2,1,2,2,1,2,1,1,2],
+            [2,2,1,2,1,1,2,2,1,1,2,1,2,2,1],
+        ], dtype=int)
+        return arr12 - 1
+
+    if name == "L18(2^1 3^7)":
+        part1 = np.array([
+            [1,1,1,1,1,1,1],[1,1,2,2,2,2,2],[1,1,3,3,3,3,3],
+            [1,2,1,1,2,2,3],[1,2,2,2,3,3,1],[1,2,3,3,1,1,2],
+            [1,3,1,2,1,3,2],[1,3,2,3,2,1,3],[1,3,3,1,3,2,1],
+            [2,1,1,3,3,2,2],[2,1,2,1,1,3,3],[2,1,3,2,2,1,1],
+            [2,2,1,2,3,1,3],[2,2,2,3,1,2,1],[2,2,3,1,2,3,2],
+            [2,3,1,3,2,3,1],[2,3,2,1,3,1,2],[2,3,3,2,1,2,3],
+        ], dtype=int)
+        col8 = np.array([
+            [1],[2],[3],[3],[1],[2],[3],[1],[2],
+            [1],[2],[3],[2],[3],[1],[2],[3],[1],
+        ], dtype=int)
+        return np.hstack([(part1[:, 0:1] - 1), (part1[:, 1:] - 1), (col8 - 1)])
+
+    if name == "L27(3^13)":
+        arr27 = np.array([
+            [1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,1,1,1,2,2,2,2,2,2,2,2,2],
+            [1,1,1,1,3,3,3,3,3,3,3,3,3],
+            [1,2,2,2,1,1,1,2,2,2,3,3,3],
+            [1,2,2,2,2,2,2,3,3,3,1,1,1],
+            [1,2,2,2,3,3,3,1,1,1,2,2,2],
+            [1,3,3,3,1,1,1,3,3,3,2,2,2],
+            [1,3,3,3,2,2,2,1,1,1,3,3,3],
+            [1,3,3,3,3,3,3,2,2,2,1,1,1],
+            [2,1,2,3,1,2,3,1,2,3,1,2,3],
+            [2,1,2,3,2,3,1,2,3,1,2,3,1],
+            [2,1,2,3,3,1,2,3,1,2,3,1,2],
+            [2,2,3,1,1,2,3,2,3,1,3,1,2],
+            [2,2,3,1,2,3,1,3,1,2,1,2,3],
+            [2,2,3,1,3,1,2,1,2,3,2,3,1],
+            [2,3,1,2,1,2,3,3,1,2,2,3,1],
+            [2,3,1,2,2,3,1,1,2,3,3,1,2],
+            [2,3,1,2,3,1,2,2,3,1,1,2,3],
+        ], dtype=int)
+        return arr27 - 1
+
+    # se nada casou:
+    raise RuntimeError(f"OA '{name}' não disponível.")
+
+
+
+def full_factorial_runs(levels_by_factor: list[int]) -> int:
+    runs = 1
+    for n in levels_by_factor:
+        runs *= int(n)
+    return runs
+
+
+# ============================
+# Configuração da página
+# ============================
+def configure_page():
+    st.set_page_config(page_title="Taguchi App", layout="wide")
+    st.title("Taguchi App")
+    st.caption(
+        """
+        <div style="font-size:16px; font-weight:bold;">
+            Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.01<br><br>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # estado do fluxo (wizard)
+    if "step" not in st.session_state:
+        st.session_state["step"] = "start"
+
+
+# ============================
+# Entrada da variável de interesse
+# ============================
+def input_var_label() -> str:
+    var_label = st.text_input(
+        "Variável de interesse (ex.: Produção de H₂)",
+        "Produção de H₂",
+        help="Digite o nome da variável de interesse. Tecle ENTER ao finalizar!",
+    )
+
+    if var_label:
+        st.success(f"✅ **Variável definida:** {var_label}")
+    else:
+        st.write("**Variável definida:** Produção de H₂")
+
+    # salva no session_state para uso em outras seções
+    st.session_state["var_label"] = var_label or "Produção de H₂"
+    return st.session_state["var_label"]
+
+
+# ---------------------------------------------
+# Upload de fatores (em função)
+# ---------------------------------------------
+def section_factors_and_oa():
+    with st.container():
+        upl = st.file_uploader(
+            "**Carregar arquivo de fatores**",
+            type=["xlsx"],
+            key="fatores_upl",
+            help="Selecione o arquivo Excel com a configuração dos fatores (aba 'Fatores')."
+        )
+
+        # Se nada foi enviado, apenas sai da função
+        if not upl:
+            return
+
+        try:
+            df_fatores = pd.read_excel(upl, sheet_name='Fatores')
+            if 'Factor' not in df_fatores.columns:
+                st.error("❌ Coluna 'Factor' não encontrada no arquivo.")
+                return
+
+            st.success("✅ Arquivo carregado com sucesso!")
+            st.dataframe(df_fatores, use_container_width=True, hide_index=True)  # <- sem índice
+
+            st.subheader("🔍 Análise Automática dos Fatores")
+            fatores = df_fatores['Factor'].astype(str).tolist()
+            num_fatores = len(fatores)
+
+            level_cols = [col for col in df_fatores.columns if col.startswith('Level')]
+            niveis_por_fator, niveis_rotulos = [], []
+            for _, row in df_fatores.iterrows():
+                lvls = [row[col] for col in level_cols if pd.notna(row[col])]
+                niveis_por_fator.append(len(lvls))
+                niveis_rotulos.append([str(x) for x in lvls])
+
+            niveis_unicos = list(set(niveis_por_fator))
+            mesmo_numero_niveis = len(niveis_unicos) == 1
+            dof_necessario = sum([n - 1 for n in niveis_por_fator])
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Número de Fatores", num_fatores)
+            c2.metric(
+                "Níveis por Fator",
+                f"{niveis_unicos[0]}" if mesmo_numero_niveis else f"misto: {min(niveis_por_fator)}–{max(niveis_por_fator)}"
+            )
+            c3.metric("Graus de Liberdade Necessários", dof_necessario)
+            c4.metric("Experimentos no Fatorial Completo", full_factorial_runs(niveis_por_fator))
+
+            st.subheader("🎯 Matrizes Ortogonais Recomendadas")
+            catalog = built_in_catalog()
+            matrizes_candidatas = []
+
+            for nome, specs in catalog.items():
+                if specs['n'] - 1 < dof_necessario:
+                    continue
+
+                if mesmo_numero_niveis:
+                    if niveis_unicos[0] == 2 and specs['cols2'] >= num_fatores:
+                        matrizes_candidatas.append((nome, specs))
+                    elif niveis_unicos[0] == 3 and specs['cols3'] >= num_fatores:
+                        matrizes_candidatas.append((nome, specs))
+                else:
+                    f2 = sum(1 for n in niveis_por_fator if n == 2)
+                    f3 = sum(1 for n in niveis_por_fator if n == 3)
+                    if specs['cols2'] >= f2 and specs['cols3'] >= f3:
+                        matrizes_candidatas.append((nome, specs))
+
+            matrizes_candidatas.sort(key=lambda x: x[1]['n'])
+
+            if not matrizes_candidatas:
+                st.warning("⚠️ Nenhuma matriz ortogonal padrão adequada foi encontrada.")
+                return
+
+            total_full = full_factorial_runs(niveis_por_fator)
+            linhas = []
+            for nome, specs in matrizes_candidatas:
+                eficiencia = (1 - specs['n'] / total_full) * 100 if total_full > 0 else 0.0
+                linhas.append({
+                    "Matriz": nome,
+                    "Experimentos (n)": specs['n'],
+                    "Colunas (2 níveis)": specs['cols2'],
+                    "Colunas (3 níveis)": specs['cols3'],
+                    "Economia de corridas (%)": f"{eficiencia:.1f}%"
+                })
+
+            df_recomendacoes = pd.DataFrame(linhas)
+            st.dataframe(df_recomendacoes, use_container_width=True, hide_index=True)  # <- sem índice
+            st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
+
+            st.subheader("🎛️ Seleção da Matriz Ortogonal")
+            matriz_opcoes = [m[0] for m in matrizes_candidatas]
+            matriz_selecionada = st.selectbox(
+                "Escolha a matriz para gerar o experimento:",
+                options=matriz_opcoes,
+                index=0,
+            )
+
+            if st.button("🔄 Gerar Matriz Experimental", type="primary"):
+                try:
+                    matriz_oa = oa_from_name(matriz_selecionada)
+                    if matriz_oa.shape[1] < num_fatores:
+                        st.error("❌ A OA selecionada tem menos colunas do que o número de fatores.")
+                        return
+
+                    matriz_oa = matriz_oa[:, :num_fatores]
+                    df_codificada = pd.DataFrame(matriz_oa, columns=fatores)
+
+                    df_niveis = pd.DataFrame(index=df_codificada.index)
+                    for j, fator in enumerate(fatores):
+                        rotulos = niveis_rotulos[j]
+                        max_code = matriz_oa[:, j].max()
+                        if max_code >= len(rotulos):
+                            st.warning(
+                                f"⚠️ Fator **{fator}** tem {len(rotulos)} níveis, "
+                                f"mas a OA possui código até {int(max_code)}. Revise."
+                            )
+                        df_niveis[fator] = [
+                            rotulos[c] if c < len(rotulos) else f"lvl{c+1}"
+                            for c in matriz_oa[:, j]
+                        ]
+
+                    df_niveis.insert(0, "Experimento", range(1, len(df_niveis) + 1))
+
+                    # 🔴 Aqui salvamos tudo no session_state
+                    st.session_state['matriz_selecionada'] = matriz_selecionada
+                    st.session_state['matriz_oa'] = matriz_oa
+                    st.session_state['df_fatores'] = df_fatores
+                    st.session_state['df_experimentos_cod'] = df_codificada
+                    st.session_state['df_experimentos'] = df_niveis
+                    st.session_state['var_label'] = st.session_state.get('var_label', 'Variável de Interesse')
+                    st.session_state['step'] = 'results'
+
+                    st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
+
+                except Exception as e:
+                    st.error(f"❌ Erro ao gerar a matriz: {str(e)}")
+
+        except Exception as e:
+            st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
+
+
+# =========================
+# Seção persistente de Resultados (compacta e modular)
+# =========================
+def section_results():
+
+    # Se ainda não existe matriz experimental, sai da função
+    if st.session_state.get("df_experimentos") is None:
+        return
+
+    df_plan = st.session_state["df_experimentos"]
+    df_cod = st.session_state.get("df_experimentos_cod")
+    var_label = st.session_state.get("var_label", "Variável")
+    matriz_selecionada = st.session_state.get("matriz_selecionada", "OA")
+
+    # ======================================================
+    # DOWNLOAD DA MATRIZ
+    # ======================================================
+    st.subheader("📊 Matriz Experimental Gerada")
+    st.dataframe(df_plan, use_container_width=True, hide_index=True)
+
+    @st.cache_data
+    def convert_df(df):
+        return df.to_csv(index=False, sep=";").encode("utf-8")
+
+    st.download_button(
+        "📥 Baixar Matriz Experimental (CSV)",
+        data=convert_df(df_plan),
+        file_name=f"matriz_experimental_{matriz_selecionada}.csv",
+        mime="text/csv",
+    )
+
+    st.markdown("---")
+
+    # ======================================================
+    # Função 1 — Upload dos Resultados
+    # ======================================================
+    def upload_resultados():
+        st.subheader("📤 Upload de Resultados Experimentais (réplicas)")
+        sn_tipo = st.selectbox(
+            "Tipo de razão S/N:", ["Maior é melhor", "Menor é melhor", "Nominal é melhor"]
+        )
+        alvo_nominal = None
+        if sn_tipo == "Nominal é melhor":
+            alvo_nominal = st.number_input("Alvo (m)", value=0.0)
+
+        upl = st.file_uploader("Carregar arquivo de resultados", type=["xlsx", "csv"])
+        if not upl:
+            return None, None, sn_tipo, alvo_nominal
+
+        # --------- Leitura ---------
+        if upl.name.endswith(".csv"):
+            df_res = pd.read_csv(upl, sep=";")
+        else:
+            df_res = pd.read_excel(upl)
+
+        # Padroniza nome da coluna "Experimento"
+        exp_col = None
+        for c in df_res.columns:
+            if str(c).strip().lower() in ["experimento", "run", "exp", "experiments"]:
+                exp_col = c
+                break
+
+        if exp_col is None:
+            st.error("❌ O arquivo precisa conter a coluna 'Experimento'.")
+            return None, None, sn_tipo, alvo_nominal
+
+        df_res = df_res.rename(columns={exp_col: "Experimento"})
+
+        # ======= Validações =======
+        n_plan = len(df_plan)
+        n_res = df_res["Experimento"].nunique()
+        if n_res != n_plan:
+            st.error(f"❌ Número de experimentos no arquivo ({n_res}) não bate com o plano ({n_plan}).")
+            return None, None, sn_tipo, alvo_nominal
+
+        # coleta colunas numéricas (réplicas)
+        num_cols = [c for c in df_res.columns if c != "Experimento"]
+
+        # Join com plano
+        df_join = df_plan.merge(df_res, on="Experimento", how="left")
+        return df_join, num_cols, sn_tipo, alvo_nominal
+
+    df_join, num_cols, sn_tipo, alvo_nominal = upload_resultados()
+
+    # Nada a fazer ainda
+    if df_join is None:
+        return
+
+    # ======================================================
+    # Função 2 — Cálculo de médias e S/N
+    # ======================================================
+    def calcular_sn():
+        reps = df_join[num_cols].to_numpy(dtype=float)
+
+        # Médias Y
+        mean_y = np.nanmean(reps, axis=1)
+
+        # Desvios
+        std_y = np.nanstd(reps, axis=1, ddof=1)
+
+        # --- Funções S/N ---
+        def sn_larger(vals):
+            return -10 * np.log10(np.mean(1.0 / (vals**2)))
+
+        def sn_smaller(vals):
+            return -10 * np.log10(np.mean(vals**2))
+
+        def sn_nominal(vals, target):
+            if len(vals) < 2:
+                return np.nan
+            return 10 * np.log10((target**2) / np.var(vals, ddof=1))
+
+        SNR = []
+        for row in reps:
+            vals = row[~np.isnan(row)]
+            if sn_tipo == "Maior é melhor":
+                SNR.append(sn_larger(vals))
+            elif sn_tipo == "Menor é melhor":
+                SNR.append(sn_smaller(vals))
+            else:
+                SNR.append(sn_nominal(vals, alvo_nominal))
+
+        df_join["_Ymean"] = mean_y
+        df_join["_SN"] = SNR
+        return df_join, mean_y, SNR
+
+    df_join, mean_y, SNR = calcular_sn()
+
+    # ======================================================
+    # Função 3 — Efeitos + Gráficos
+    # ======================================================
+    def mostrar_efeitos_e_graficos():
+        st.subheader("📈 Efeitos principais na razão S/N")
+
+        factor_cols = [c for c in df_plan.columns if c != "Experimento"]
+
+        # Cálculo de médias por nível
+        per_factor = {}
+        grand_mean = np.mean(SNR)
+
+        for f in factor_cols:
+            df_tmp = df_join.copy()
+            df_tmp[f] = df_tmp[f].astype(str)
+            g = df_tmp.groupby(f)["_SN"].mean()
+            per_factor[f] = g.to_frame("S/N médio")
+
+        # Exibição
+        for f in factor_cols:
+            st.write(f"### Fator: {f}")
+            st.dataframe(per_factor[f])
+
+        return per_factor, grand_mean, factor_cols
+
+    def mostrar_interacoes():
+        if len(factor_cols) < 2:
+            return
+        st.subheader("🔗 Interações entre fatores")
+        fac_x = st.selectbox("Fator no eixo X:", factor_cols)
+        fac_l = st.selectbox("Fator para curvas:", [f for f in factor_cols if f != fac_x])
+
+        df_tmp = df_join.copy()
+        df_tmp[fac_x] = df_tmp[fac_x].astype(str)
+        df_tmp[fac_l] = df_tmp[fac_l].astype(str)
+
+        g = df_tmp.groupby([fac_x, fac_l])["_SN"].mean().reset_index()
+
+        fig = go.Figure()
+        for lvl in sorted(g[fac_l].unique()):
+            sub = g[g[fac_l] == lvl]
+            fig.add_trace(go.Scatter(
+                x=sub[fac_x], y=sub["_SN"],
+                mode="lines+markers",
+                name=f"{fac_l}={lvl}"
+            ))
+        fig.update_layout(
+            xaxis_title=f"Níveis de {fac_x}",
+            yaxis_title="S/N médio (dB)"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    def mostrar_superficie_3d():
+        if len(factor_cols) < 2:
+            return
+
+        st.subheader("🌐 Superfície 3D (Y médio × 2 fatores)")
+
+        fx = st.selectbox("Fator X (3D):", factor_cols)
+        fy = st.selectbox("Fator Y (3D):", [f for f in factor_cols if f != fx])
+
+        df_tmp = df_join.copy()
+        df_tmp[fx] = df_tmp[fx].astype(str)
+        df_tmp[fy] = df_tmp[fy].astype(str)
+
+        grid = df_tmp.groupby([fx, fy])["_Ymean"].mean().reset_index()
+
+        xs = sorted(grid[fx].unique(), key=lambda z: int(z))
+        ys = sorted(grid[fy].unique(), key=lambda z: int(z))
+
+        Z = np.zeros((len(ys), len(xs)))
+        for i, yv in enumerate(ys):
+            for j, xv in enumerate(xs):
+                val = grid[(grid[fx] == xv) & (grid[fy] == yv)]["_Ymean"]
+                Z[i, j] = float(val)
+
+        fig = go.Figure(data=[go.Surface(
+            x=list(range(len(xs))),
+            y=list(range(len(ys))),
+            z=Z,
+            colorscale="Viridis"
+        )])
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(ticktext=xs, tickvals=list(range(len(xs)))),
+                yaxis=dict(ticktext=ys, tickvals=list(range(len(ys)))),
+                zaxis_title=var_label
+            )
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    def mostrar_regra_delta():
+        st.subheader("📐 Regra Delta")
+
+        rows = []
+        for fac, g in per_factor.items():
+            vals = g["S/N médio"]
+            vmax = vals.max()
+            vmin = vals.min()
+            rows.append({
+                "Fator": fac,
+                "Delta": vmax - vmin,
+                "Melhor nível": vals.idxmax()
+            })
+
+        df_delta = pd.DataFrame(rows).sort_values("Delta", ascending=False)
+        st.dataframe(df_delta, use_container_width=True)
+
+    def tabelas_observado_predito():
+        st.subheader("📊 Observado × Predito")
+
+        Y = df_join["_Ymean"].values
+        SN = df_join["_SN"].values
+
+        factor_cols_local = [c for c in df_plan.columns if c != "Experimento"]
+
+        Y_bar = np.mean(Y)
+        SN_bar = np.mean(SN)
+
+        predY = []
+        predSN = []
+
+        # ATENÇÃO: aqui ainda falta você definir per_factor_Y em algum lugar
+        for i in range(len(df_plan)):
+            somaY = 0
+            somaSN = 0
+            for fac in factor_cols_local:
+                lvl = str(df_join.loc[i, fac])
+                somaY += per_factor_Y[fac][lvl]
+                somaSN += per_factor[fac].loc[lvl, "S/N médio"]
+            predY.append(somaY - (len(factor_cols_local) - 1) * Y_bar)
+            predSN.append(somaSN - (len(factor_cols_local) - 1) * SN_bar)
+
+        df_pred = pd.DataFrame({
+            "Y_obs": Y,
+            "Y_pred": predY,
+            "SN_obs": SN,
+            "SN_pred": predSN
+        })
+
+        st.dataframe(df_pred.round(3))
+
+    def predicao_usuario():
+        st.subheader("🧮 Predição para qualquer combinação")
+
+        levels = {}
+        for f in factor_cols:
+            lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z))
+            levels[f] = st.selectbox(f"Nível para {f}", lvls)
+
+        SN_bar = np.mean(SN)
+        somaSN = 0
+        for f, lvl in levels.items():
+            somaSN += per_factor[f].loc[lvl, "S/N médio"]
+        pred_sn = somaSN - (len(factor_cols) - 1) * SN_bar
+
+        st.success(f"**S/N predito = {pred_sn:.3f} dB**")
+
+    def regressao_multipla():
+        st.subheader("📉 Regressão múltipla (opcional)")
+        ativar = st.checkbox("Ativar regressão múltipla", value=False)
+        if not ativar:
+            return
+
+        bloco_regressao_multipla(
+            df_plan=df_plan,
+            df_design_cod=df_cod,
+            mean_y=mean_y,
+            df_effects=df_join,
+            sn_col="_SN",
+            var_label=var_label
+        )
+
+    # =============================================
+    # 🔖 Abas de resultados
+    # =============================================
+    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
+        ["Efeitos principais & Delta", "Interações", "Superfície 3D", "Predições", "Regressão múltipla"]
+    )
+
+    with tab_efeitos:
+        per_factor, grand_mean, factor_cols = mostrar_efeitos_e_graficos()
+        mostrar_regra_delta()
+
+    with tab_inter:
+        mostrar_interacoes()
+
+    with tab_3d:
+        mostrar_superficie_3d()
+
+    with tab_pred:
+        tabelas_observado_predito()
+        predicao_usuario()
+
+    with tab_reg:
+        regressao_multipla()
+
+
+
+def main():
+    # A parte de configuração da página e var_label já está no topo do arquivo,
+    # então aqui só chamamos os blocos principais.
+    section_factors_and_oa()
+    section_results()
+
+
+if __name__ == "__main__":
+    main()
+
