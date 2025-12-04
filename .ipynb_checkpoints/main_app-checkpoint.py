@@ -501,29 +501,40 @@ def section_results():
     df_join, mean_y, SNR = calcular_sn()
 
     # ======================================================
+    # Pré-cálculo global para todas as funções da aba
+    # ======================================================
+    factor_cols = [c for c in df_plan.columns if c != "Experimento"]
+    
+    per_factor = {}     # S/N médio por nível
+    per_factor_Y = {}   # Y médio por nível
+    grand_mean = float(np.mean(SNR))
+    
+    for f in factor_cols:
+        df_tmp = df_join.copy()
+        df_tmp[f] = df_tmp[f].astype(str)
+    
+        # S/N MÉDIO POR NÍVEL
+        g_sn = df_tmp.groupby(f)["_SN"].mean()
+        per_factor[f] = g_sn.to_frame("S/N médio")
+    
+        # Y MÉDIO POR NÍVEL
+        g_y = df_tmp.groupby(f)["_Ymean"].mean()
+        per_factor_Y[f] = g_y.to_dict()
+
+
+    # ======================================================
     # Função 3 — Efeitos + Gráficos
     # ======================================================
     def mostrar_efeitos_e_graficos():
         st.subheader("📈 Efeitos principais na razão S/N")
-
-        factor_cols = [c for c in df_plan.columns if c != "Experimento"]
-
-        # Cálculo de médias por nível
-        per_factor = {}
-        grand_mean = np.mean(SNR)
-
-        for f in factor_cols:
-            df_tmp = df_join.copy()
-            df_tmp[f] = df_tmp[f].astype(str)
-            g = df_tmp.groupby(f)["_SN"].mean()
-            per_factor[f] = g.to_frame("S/N médio")
-
-        # Exibição
+    
         for f in factor_cols:
             st.write(f"### Fator: {f}")
-            st.dataframe(per_factor[f])
-
+            st.dataframe(per_factor[f], use_container_width=True)
+    
         return per_factor, grand_mean, factor_cols
+
+
 
     def mostrar_interacoes():
         if len(factor_cols) < 2:
@@ -650,7 +661,7 @@ def section_results():
             lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z))
             levels[f] = st.selectbox(f"Nível para {f}", lvls)
 
-        SN_bar = np.mean(SN)
+        SN_bar = np.mean(SNR)
         somaSN = 0
         for f, lvl in levels.items():
             somaSN += per_factor[f].loc[lvl, "S/N médio"]
