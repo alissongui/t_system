@@ -740,6 +740,7 @@ def section_results():
 
             per_factor_tables[fac] = fac_df
 
+        st.markdown("🔍 Tabelas por fator (S/N médio por nível)")
         # Renderiza as tabelas — até 4 fatores por linha
         COLS_PER_ROW = 4
         for i in range(0, len(factor_cols), COLS_PER_ROW):
@@ -753,7 +754,23 @@ def section_results():
                         use_container_width=True,
                         hide_index=True,
                     )
-
+        # ============================
+        # 📥 Baixar tabelas por fator (CSV único)
+        # ============================
+        if per_factor_tables:
+            df_emp = pd.concat(
+                [df.assign(**{"Fator": f}) for f, df in per_factor_tables.items()],
+                ignore_index=True
+            )
+            st.download_button(
+                "📥 Baixar tabelas por fator (CSV)",
+                data=df_emp.to_csv(index=False).encode("utf-8"),
+                file_name=f"efeitos_sn_por_fator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="dl_efeitos_fator_csv",
+            )
+        st.markdown("---")
+        
         # Mantém o mesmo retorno de antes (para compatibilidade)
         return per_factor, grand_mean, factor_cols
 
@@ -827,21 +844,82 @@ def section_results():
         st.plotly_chart(fig, use_container_width=True)
 
     def mostrar_regra_delta():
-        st.subheader("📐 Regra Delta")
+        st.markdown("---")
+        st.subheader("📐 A regra Delta por fator")
 
+        # 🔽 Toggle explicativo (igual ao app_regressao)
+        if st.toggle("🔴🔴🔴 O que é o 'Delta'? (clique para ver) 🔴🔴🔴",
+                     value=False,
+                     key="show_delta"):
+            st.markdown(r"""
+Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influência de cada fator sobre a resposta do problema, sendo que fatores com maiores valores de $\Delta$ são considerados mais relevantes, pois produzem maior variação na razão sinal-ruído média entre seus níveis. Especificamente, para cada fator $k$, o **Delta** $(\Delta_k)$ é dado pela **amplitude** entre a maior e a menor **S/N média** dos seus níveis:
+""")
+            st.latex(r"\Delta_k = \max_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell} - \min_{\ell} \, \overline{\mathrm{S/N}}_{k,\ell}")
+
+            st.markdown(r"""
+**Procedimento de cálculo (passos):**
+1. Agrupe a $\mathrm{S/N}$ por **nível** do fator $k$.
+2. Calcule a **$\mathrm{S/N}$ média** em cada nível.
+3. Identifique **máximo** e **mínimo** dessas médias.
+4. Faça $\Delta = \textrm{máx} - \textrm{mín}$ (em dB).
+
+**Interpretação.**
+- Valor de $\Delta_k$ grande $\implies$ o fator $k$ **altera fortemente** a resposta (maior influência).
+- Valor de $\Delta_k \approx 0$ $\implies$ pouca ou nenhuma influência detectável via $\mathrm{S/N}$.
+
+**Observações rápidas:**
+- Válido para qualquer tipo de S/N (maior-melhor, menor-melhor, nominal-melhor).
+- Em **empates** de S/N média entre níveis, adote uma regra estável (p.ex., a **ordem natural** dos níveis).
+- Ordena fatores por influência (***regra Delta***), porém **não** testa significância.
+- Para **significância estatística**, use **ANOVA sobre S/N** em complemento à regra delta.
+""")
+
+        st.markdown("---")
+        st.markdown("🔍 Tabela de cálculo da regra delta por fator")
+
+        # Reconstrói pequenas tabelas por fator a partir de per_factor
         rows = []
         for fac, g in per_factor.items():
-            vals = g["S/N médio"]
-            vmax = vals.max()
-            vmin = vals.min()
+            # g: DataFrame com índice = níveis, coluna "S/N médio"
+            s = pd.to_numeric(g["S/N médio"], errors="coerce")
+            if s.isna().all():
+                rows.append({
+                    "Fator": fac,
+                    "S/N médio máx. (dB)": float("nan"),
+                    "S/N médio mín. (dB)": float("nan"),
+                    "Δ (dB)": float("nan"),
+                })
+                continue
+
+            vmax = float(s.max())
+            vmin = float(s.min())
             rows.append({
                 "Fator": fac,
-                "Delta": vmax - vmin,
-                "Melhor nível": vals.idxmax()
+                "S/N médio máx. (dB)": round(vmax, 3),
+                "S/N médio mín. (dB)": round(vmin, 3),
+                "Δ (dB)": round(vmax - vmin, 3),
             })
 
-        df_delta = pd.DataFrame(rows).sort_values("Delta", ascending=False)
-        st.dataframe(df_delta, use_container_width=True)
+        delta_simple_df = (
+            pd.DataFrame(rows)
+            .sort_values("Δ (dB)", ascending=False, na_position="last")
+            .reset_index(drop=True)
+        )
+        delta_simple_df["Rank (Δ)"] = np.arange(1, len(delta_simple_df) + 1)
+
+        st.dataframe(delta_simple_df, use_container_width=True, hide_index=True)
+
+        # 📥 Download CSV da regra delta por fator
+        buf = io.StringIO()
+        delta_simple_df.to_csv(buf, index=False)
+        st.download_button(
+            "📥 Baixar delta por fator (CSV)",
+            data=buf.getvalue().encode("utf-8"),
+            file_name=f"delta_por_fator_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            key="dl_delta_por_fator_csv",
+        )
+
 
     def tabelas_observado_predito():
         st.subheader("📊 Observado × Predito")
