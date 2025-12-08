@@ -403,6 +403,35 @@ def section_results():
         mime="text/csv",
     )
 
+    # =============================================
+    # 🔤 Idioma para os rótulos dos gráficos
+    # =============================================
+    lang = st.radio(
+        "Idioma / Language para os rótulos dos gráficos:",
+        options=["Português", "English"],
+        index=0,
+        horizontal=True,
+        key="lang_taguchi_plots",
+    )
+
+    if lang == "Português":
+        main_x_tmpl = "Níveis de {fator}"
+        main_y_default = "S/N médio (dB)"
+        inter_x_tmpl = "Níveis de {fac_x}"
+        inter_y_default = "S/N médio (dB)"
+        surf_x_tmpl = "Níveis de {fx}"
+        surf_y_tmpl = "Níveis de {fy}"
+        surf_z_tmpl = "Média de {var_label}"
+    else:
+        main_x_tmpl = "Levels of {fator}"
+        main_y_default = "Average S/N (dB)"
+        inter_x_tmpl = "Levels of {fac_x}"
+        inter_y_default = "Average S/N (dB)"
+        surf_x_tmpl = "Levels of {fx}"
+        surf_y_tmpl = "Levels of {fy}"
+        surf_z_tmpl = "Mean of {var_label}"
+
+    
     st.markdown("---")
 
         # ======================================================
@@ -659,7 +688,7 @@ def section_results():
     # ======================================================
     # Função 3 — Efeitos + Gráficos
     # ======================================================
-    def mostrar_efeitos_e_graficos():
+    def mostrar_efeitos_e_graficos(lang, main_x_tmpl, main_y_default):
         st.subheader("📈 Efeitos principais na razão S/N (médias por nível)")
 
         # 🔀 Toggle com a explicação do efeito (igual ao app_regressao)
@@ -770,6 +799,111 @@ def section_results():
                 key="dl_efeitos_fator_csv",
             )
         st.markdown("---")
+
+                # =============================================
+        # 📈 Gráficos de efeitos médios por fator
+        # (estilo app_regressao.py: cor + tipo de imagem)
+        # =============================================
+        st.markdown("### 📈 Efeitos médios — gráficos por fator")
+
+        if len(factor_cols) == 0:
+            st.info("Nenhum fator disponível para gráficos.")
+            return per_factor, grand_mean, factor_cols
+
+        c_g1, c_g2, c_g3 = st.columns([2, 1, 1])
+
+        with c_g1:
+            fac_plot = st.selectbox(
+                "Escolha o fator para o gráfico:",
+                factor_cols,
+                key="fac_plot_sn",
+            )
+
+        with c_g2:
+            line_color = st.color_picker(
+                "Cor da curva:",
+                "#1f77b4",
+                key="color_sn_line",
+            )
+
+        with c_g3:
+            img_format = st.selectbox(
+                "Formato da imagem:",
+                ["png", "svg", "jpeg"],
+                index=0,
+                key="img_fmt_sn",
+            )
+
+        # Dados do fator selecionado
+        fac_df = per_factor_tables[fac_plot]
+        x_vals = fac_df["Nível"].astype(str).tolist()
+        y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
+
+        # Rótulos dos eixos com base no idioma selecionado
+        default_x_label = main_x_tmpl.format(fator=fac_plot)
+        default_y_label = main_y_default
+
+        x_label = st.text_input(
+            "Rótulo do eixo X / X-axis label:",
+            default_x_label,
+            key="x_label_main_effect",
+        )
+        y_label = st.text_input(
+            "Rótulo do eixo Y / Y-axis label:",
+            default_y_label,
+            key="y_label_main_effect",
+        )
+
+        # Gráfico Plotly
+        fig_main = go.Figure()
+        fig_main.add_trace(go.Scatter(
+            x=x_vals,
+            y=y_vals,
+            mode="lines+markers",
+            line=dict(color=line_color),
+            marker=dict(color=line_color, size=8),
+            name=fac_plot,
+        ))
+        fig_main.update_layout(
+            xaxis_title=x_label,
+            yaxis_title=y_label,
+            hovermode="x",
+        )
+
+        st.plotly_chart(fig_main, use_container_width=True)
+
+        # Download da imagem do gráfico
+        mime_map = {
+            "png": "image/png",
+            "svg": "image/svg+xml",
+            "jpeg": "image/jpeg",
+        }
+
+        try:
+            img_bytes = pio.to_image(
+                fig_main,
+                format=img_format,
+                width=1200,
+                height=800,
+                scale=2,
+            )
+
+            st.download_button(
+                "📥 Baixar gráfico de efeitos médios",
+                data=img_bytes,
+                file_name=(
+                    f"efeitos_medios_{fac_plot}_"
+                    f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.{img_format}"
+                ),
+                mime=mime_map.get(img_format, "image/png"),
+                key="dl_main_effects_img",
+            )
+        except Exception as e:
+            st.warning(
+                "⚠️ Não foi possível gerar o arquivo de imagem. "
+                "Verifique se o pacote 'kaleido' está instalado no ambiente Python."
+            )
+
         
         # Mantém o mesmo retorno de antes (para compatibilidade)
         return per_factor, grand_mean, factor_cols
@@ -777,7 +911,7 @@ def section_results():
 
 
 
-    def mostrar_interacoes():
+    def mostrar_interacoes(lang, inter_x_tmpl, inter_y_default):
         if len(factor_cols) < 2:
             return
         st.subheader("🔗 Interações entre fatores")
@@ -794,15 +928,37 @@ def section_results():
         for lvl in sorted(g[fac_l].unique()):
             sub = g[g[fac_l] == lvl]
             fig.add_trace(go.Scatter(
-                x=sub[fac_x], y=sub["_SN"],
+                x=sub[fac_x],
+                y=sub["_SN"],
                 mode="lines+markers",
                 name=f"{fac_l}={lvl}"
             ))
+
+        # Rótulos default de acordo com o idioma
+        default_x_label = inter_x_tmpl.format(fac_x=fac_x)
+        default_y_label = inter_y_default
+
+        c_ax1, c_ax2 = st.columns(2)
+        with c_ax1:
+            x_label = st.text_input(
+                "Rótulo eixo X (interação) / X-axis label (interaction):",
+                default_x_label,
+                key="x_label_inter",
+            )
+        with c_ax2:
+            y_label = st.text_input(
+                "Rótulo eixo Y (interação) / Y-axis label (interaction):",
+                default_y_label,
+                key="y_label_inter",
+            )
+
         fig.update_layout(
-            xaxis_title=f"Níveis de {fac_x}",
-            yaxis_title="S/N médio (dB)"
+            xaxis_title=x_label,
+            yaxis_title=y_label,
+            hovermode="x",
         )
         st.plotly_chart(fig, use_container_width=True)
+
 
     def mostrar_superficie_3d():
         if len(factor_cols) < 2:
@@ -1024,11 +1180,13 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     )
 
     with tab_efeitos:
-        per_factor, grand_mean, factor_cols = mostrar_efeitos_e_graficos()
+        per_factor, grand_mean, factor_cols = mostrar_efeitos_e_graficos(
+            lang, main_x_tmpl, main_y_default
+        )
         mostrar_regra_delta()
 
     with tab_inter:
-        mostrar_interacoes()
+        mostrar_interacoes(lang, inter_x_tmpl, inter_y_default)
 
     with tab_3d:
         mostrar_superficie_3d()

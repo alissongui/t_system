@@ -1020,7 +1020,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
     tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
-        ["Efeitos principais & Delta", "Interações", "Superfície 3D", "Predições", "Regressão múltipla"]
+        ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições", "Regressão múltipla"]
     )
 
     with tab_efeitos:
