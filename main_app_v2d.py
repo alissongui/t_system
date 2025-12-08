@@ -686,7 +686,7 @@ def section_results():
 
 
     # ======================================================
-    # Função 3 — Efeitos + Gráficos
+    # Função 3 — Efeitos + Tabelas (SEM gráficos aqui)
     # ======================================================
     def mostrar_efeitos_e_graficos(lang, main_x_tmpl, main_y_default):
         st.subheader("📈 Efeitos principais na razão S/N (médias por nível)")
@@ -783,6 +783,7 @@ def section_results():
                         use_container_width=True,
                         hide_index=True,
                     )
+
         # ============================
         # 📥 Baixar tabelas por fator (CSV único)
         # ============================
@@ -798,143 +799,337 @@ def section_results():
                 mime="text/csv",
                 key="dl_efeitos_fator_csv",
             )
+
         st.markdown("---")
 
-                # =============================================
-        # 📈 Gráficos de efeitos médios por fator
-        # (estilo app_regressao.py: cor + tipo de imagem)
-        # =============================================
-        st.markdown("### 📈 Efeitos médios — gráficos por fator")
-
-        if len(factor_cols) == 0:
-            st.info("Nenhum fator disponível para gráficos.")
-            return per_factor, grand_mean, factor_cols
-
-        c_g1, c_g2, c_g3 = st.columns([2, 1, 1])
-
-        with c_g1:
-            fac_plot = st.selectbox(
-                "Escolha o fator para o gráfico:",
-                factor_cols,
-                key="fac_plot_sn",
-            )
-
-        with c_g2:
-            line_color = st.color_picker(
-                "Cor da curva:",
-                "#1f77b4",
-                key="color_sn_line",
-            )
-
-        with c_g3:
-            img_format = st.selectbox(
-                "Formato da imagem:",
-                ["png", "svg", "jpeg"],
-                index=0,
-                key="img_fmt_sn",
-            )
-
-        # Dados do fator selecionado
-        fac_df = per_factor_tables[fac_plot]
-        x_vals = fac_df["Nível"].astype(str).tolist()
-        y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
-
-        # Rótulos dos eixos com base no idioma selecionado
-        default_x_label = main_x_tmpl.format(fator=fac_plot)
-        default_y_label = main_y_default
-
-        x_label = st.text_input(
-            "Rótulo do eixo X / X-axis label:",
-            default_x_label,
-            key="x_label_main_effect",
-        )
-        y_label = st.text_input(
-            "Rótulo do eixo Y / Y-axis label:",
-            default_y_label,
-            key="y_label_main_effect",
-        )
-
-        # Gráfico Plotly
-        fig_main = go.Figure()
-        fig_main.add_trace(go.Scatter(
-            x=x_vals,
-            y=y_vals,
-            mode="lines+markers",
-            line=dict(color=line_color),
-            marker=dict(color=line_color, size=8),
-            name=fac_plot,
-        ))
-        fig_main.update_layout(
-            xaxis_title=x_label,
-            yaxis_title=y_label,
-            hovermode="x",
-        )
-
-        st.plotly_chart(fig_main, use_container_width=True)
-
-        # Download da imagem do gráfico
-        mime_map = {
-            "png": "image/png",
-            "svg": "image/svg+xml",
-            "jpeg": "image/jpeg",
-        }
-
-        try:
-            img_bytes = pio.to_image(
-                fig_main,
-                format=img_format,
-                width=1200,
-                height=800,
-                scale=2,
-            )
-
-            st.download_button(
-                "📥 Baixar gráfico de efeitos médios",
-                data=img_bytes,
-                file_name=(
-                    f"efeitos_medios_{fac_plot}_"
-                    f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.{img_format}"
-                ),
-                mime=mime_map.get(img_format, "image/png"),
-                key="dl_main_effects_img",
-            )
-        except Exception as e:
-            st.warning(
-                "⚠️ Não foi possível gerar o arquivo de imagem. "
-                "Verifique se o pacote 'kaleido' está instalado no ambiente Python."
-            )
-
-        
         # Mantém o mesmo retorno de antes (para compatibilidade)
         return per_factor, grand_mean, factor_cols
 
 
+    # ======================================================
+    # Gráficos de efeitos médios por fator (para aba 2D)
+    # ======================================================
 
 
     def mostrar_interacoes(lang, inter_x_tmpl, inter_y_default):
+        # Precisa de pelo menos 2 fatores
         if len(factor_cols) < 2:
+            st.info("São necessários pelo menos dois fatores para visualizar interações.")
             return
-        st.subheader("🔗 Interações entre fatores")
-        fac_x = st.selectbox("Fator no eixo X:", factor_cols)
-        fac_l = st.selectbox("Fator para curvas:", [f for f in factor_cols if f != fac_x])
 
-        df_tmp = df_join.copy()
-        df_tmp[fac_x] = df_tmp[fac_x].astype(str)
-        df_tmp[fac_l] = df_tmp[fac_l].astype(str)
+        # -------------------------------------------------
+        # 📈 Efeitos médios — gráficos por fator (estilo Minitab)
+        # -------------------------------------------------
+        df_effects = df_join.copy()
+        sn_col = "_SN"
 
-        g = df_tmp.groupby([fac_x, fac_l])["_SN"].mean().reset_index()
+        # média global do S/N das réplicas
+        grand_mean = df_effects[sn_col].mean()
+
+        # Tabelas por fator apenas para alimentar os gráficos
+        per_factor_tables = {}
+        for fac in factor_cols:
+            lvls_in_plan = df_plan[fac].astype(str).unique().tolist()
+            try:
+                order_nat = sorted(lvls_in_plan, key=lambda s: int(s))
+            except Exception:
+                order_nat = sorted(lvls_in_plan)
+
+            tmp = df_effects.copy()
+            tmp[fac] = tmp[fac].astype(str)
+
+            g = (
+                tmp
+                .groupby(fac, as_index=True)[sn_col]
+                .mean()
+                .reindex(order_nat)
+            )
+
+            fac_df = (
+                pd.DataFrame({"Nível": g.index, "S/N médio (dB)": g.values})
+                .reset_index(drop=True)
+            )
+            per_factor_tables[fac] = fac_df
+
+        # Rótulos em função do idioma
+                # -------------------------------------------------
+        # Escolha de idioma SÓ para os gráficos de efeitos médios
+        # (independente do idioma usado nos gráficos de interação)
+        # -------------------------------------------------
+        lang_effects = st.radio(
+            "Idioma / Language (efeitos médios):",
+            ["Português", "English"],
+            index=0,
+            horizontal=True,
+            key="lang_effects_2d",
+        )
+
+        if lang_effects == "Português":
+            y_label_factors = "S/N médio (dB)"
+            x_label_factors = "Níveis dos parâmetros"
+            global_mean_label = "Média global"
+            hover_template = "Nível=%{x}<br>S/N=%{y:.3f} dB<extra></extra>"
+        else:
+            y_label_factors = "Average S/N (dB)"
+            x_label_factors = "Parameter levels"
+            global_mean_label = "Overall mean"
+            hover_template = "Level=%{x}<br>S/N=%{y:.3f} dB<extra></extra>"
+
+
+        st.subheader("📊 Efeitos médios — gráficos por fator")
+
+        # Até 4 gráficos por linha
+        MAX_COLS = 4
+        cols = MAX_COLS if len(factor_cols) >= MAX_COLS else (len(factor_cols) if len(factor_cols) > 0 else 1)
+        rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
+        fig_all = make_subplots(rows=rows, cols=cols, subplot_titles=factor_cols)
+
+        # Mesma escala Y em todos os subplots (inclui a média global)
+        all_y = []
+        for _fac in factor_cols:
+            _df = per_factor_tables[_fac].copy().reset_index(drop=True)
+            all_y.extend(_df["S/N médio (dB)"].astype(float).tolist())
+        if not math.isnan(grand_mean):
+            all_y.append(float(grand_mean))
+
+        if len(all_y) > 0:
+            ymin, ymax = min(all_y), max(all_y)
+            pad = 0.1 * (ymax - ymin if ymax > ymin else (abs(ymax) if ymax != 0 else 1.0))
+            y_range = [ymin - pad, ymax + pad]
+        else:
+            y_range = None
+
+        r, c = 1, 1
+        for fac in factor_cols:
+            fac_df = per_factor_tables[fac].copy().reset_index(drop=True)
+
+            num_levels = len(fac_df)
+            x_cat = [str(i) for i in range(1, num_levels + 1)]
+            y_vals = fac_df["S/N médio (dB)"].astype(float).tolist()
+
+            # Curva do fator
+            fig_all.add_trace(
+                go.Scatter(
+                    x=x_cat,
+                    y=y_vals,
+                    mode="lines+markers",
+                    name=f"{fac}",
+                    showlegend=False,
+                    hovertemplate=hover_template,
+                ),
+                row=r, col=c
+            )
+
+
+            # Linha da média global em TODOS os subplots
+            if not math.isnan(grand_mean):
+                fig_all.add_trace(
+                    go.Scatter(
+                        x=x_cat,
+                        y=[grand_mean] * len(x_cat),
+                        mode="lines",
+                        name=global_mean_label,
+                        line=dict(dash="dash"),
+                        showlegend=(r == 1 and c == 1),
+                        hovertemplate=f"{global_mean_label}=%{{y:.3f}} dB<extra></extra>",
+                    ),
+                    row=r, col=c
+                )
+
+            # Eixo Y só com rótulo no 1º subplot; todos com mesmo range
+            if r == 1 and c == 1:
+                fig_all.update_yaxes(title_text=y_label_factors, range=y_range, row=r, col=c)
+            else:
+                fig_all.update_yaxes(title_text=None, range=y_range, row=r, col=c)
+
+            # X categórico e título
+            fig_all.update_xaxes(
+                title_text=x_label_factors,
+                type="category",
+                tickmode="array",
+                tickvals=x_cat,
+                ticktext=x_cat,
+                categoryorder="category ascending",
+                row=r, col=c
+            )
+
+            # avança colunas
+            c += 1
+            if c > cols:
+                c = 1
+                r += 1
+
+        fig_all.update_layout(height=280 * rows, margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(fig_all, use_container_width=True)
+
+        # -----------------------------
+        # 📥 Downloads (cores / P&B)
+        # -----------------------------
+        st.markdown("📄 Baixar figura")
+        color_mode = st.radio(
+            "Modo de cores para exportação:",
+            ["Cores (original)", "Preto e branco"],
+            index=0,
+            help="A visualização na tela permanece em cores. A opção afeta apenas os arquivos baixados.",
+            key="color_mode_2d_effects",
+        )
+
+        # Cópia para exportação
+        fig_exp = go.Figure(fig_all.to_dict())
+
+        rows = math.ceil(len(factor_cols) / cols) if len(factor_cols) > 0 else 1
+        export_width = 1100
+        export_height = 320 * rows + 80
+
+        fig_exp.update_layout(
+            width=export_width,
+            height=export_height,
+            margin=dict(l=70, r=30, t=60, b=70),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            template="plotly_white",
+        )
+
+        if color_mode == "Preto e branco":
+            dash_cycle = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+            t_idx = 0
+            for tr in fig_exp.data:
+                if isinstance(tr, go.Scatter):
+                    is_global_mean = (getattr(tr, "name", "") == global_mean_label) or (
+                        hasattr(tr, "hovertemplate") and global_mean_label in str(tr.hovertemplate)
+                    )
+                    tr.update(
+                        line=dict(
+                            color="black",
+                            width=2,
+                            dash=("dot" if is_global_mean else dash_cycle[t_idx % len(dash_cycle)]),
+                        ),
+                        marker=dict(color="black", size=7),
+                    )
+                    if not is_global_mean:
+                        t_idx += 1
+
+        def _export_bytes(fmt: str):
+            try:
+                return fig_exp.to_image(
+                    format=fmt,
+                    scale=2,
+                    width=export_width,
+                    height=export_height,
+                )
+            except Exception:
+                st.warning(
+                    "Para exportar imagens, é necessário o pacote **kaleido**.\n\n"
+                    "Instale com:\n\n"
+                    "`pip install -U kaleido`\n\n"
+                    "ou\n\n"
+                    "`conda install -c conda-forge python-kaleido -y`"
+                )
+                raise
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            if st.button("📥 Gerar PNG"):
+                try:
+                    png_bytes = _export_bytes("png")
+                    st.download_button(
+                        "Baixar PNG",
+                        data=png_bytes,
+                        file_name="efeitos_medios_todos_fatores.png",
+                        mime="image/png",
+                    )
+                except Exception:
+                    pass
+
+        with col2:
+            if st.button("📥 Gerar SVG"):
+                try:
+                    svg_bytes = _export_bytes("svg")
+                    st.download_button(
+                        "Baixar SVG",
+                        data=svg_bytes,
+                        file_name="efeitos_medios_todos_fatores.svg",
+                        mime="image/svg+xml",
+                    )
+                except Exception:
+                    pass
+
+        
+        with col3:
+            if st.button("📥 Gerar PDF"):
+                try:
+                    pdf_bytes = _export_bytes("pdf")
+                    st.download_button(
+                        "Baixar PDF",
+                        data=pdf_bytes,
+                        file_name="efeitos_medios_todos_fatores.pdf",
+                        mime="application/pdf",
+                    )
+                except Exception:
+                    pass
+
+        with col4:
+            if st.button("📥 Gerar HTML interativo"):
+                html_bytes = pio.to_html(
+                    fig_all, include_plotlyjs="cdn", full_html=False
+                ).encode("utf-8")
+                st.download_button(
+                    "Baixar HTML",
+                    data=html_bytes,
+                    file_name="efeitos_medios_todos_fatores.html",
+                    mime="text/html",
+                )
+
+
+        # -------------------------------------------------
+        # 🔗 Gráficos de interação entre fatores (S/N)
+        # -------------------------------------------------
+        st.markdown("---")
+        st.subheader("🔗 Gráficos de interação entre fatores (S/N)")
+
+        st.caption(
+            "Selecione um fator para o eixo X e outro para formar as curvas. "
+            "O gráfico mostra a S/N média para cada combinação de níveis."
+        )
+
+        fac_x = st.selectbox(
+            "Fator no eixo X:",
+            factor_cols,
+            index=0,
+            key="inter_x",
+        )
+
+        fac_l = st.selectbox(
+            "Fator para as curvas:",
+            [f for f in factor_cols if f != fac_x],
+            index=0,
+            key="inter_lines",
+        )
+
+        tmp = df_join.copy()
+        tmp[fac_x] = tmp[fac_x].astype(str)
+        tmp[fac_l] = tmp[fac_l].astype(str)
+
+        g = (
+            tmp
+            .groupby([fac_x, fac_l])["_SN"]
+            .mean()
+            .reset_index()
+        )
 
         fig = go.Figure()
         for lvl in sorted(g[fac_l].unique()):
             sub = g[g[fac_l] == lvl]
-            fig.add_trace(go.Scatter(
-                x=sub[fac_x],
-                y=sub["_SN"],
-                mode="lines+markers",
-                name=f"{fac_l}={lvl}"
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=sub[fac_x],
+                    y=sub["_SN"],
+                    mode="lines+markers",
+                    name=f"{fac_l}={lvl}",
+                )
+            )
 
-        # Rótulos default de acordo com o idioma
+        # Rótulos default em função do idioma/templated
         default_x_label = inter_x_tmpl.format(fac_x=fac_x)
         default_y_label = inter_y_default
 
@@ -958,6 +1153,7 @@ def section_results():
             hovermode="x",
         )
         st.plotly_chart(fig, use_container_width=True)
+
 
 
     def mostrar_superficie_3d():
@@ -1174,7 +1370,6 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
 
-
     tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
         ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições", "Regressão múltipla"]
     )
@@ -1186,7 +1381,10 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         mostrar_regra_delta()
 
     with tab_inter:
+
+        # 2) Gráficos de interação entre fatores (S/N)
         mostrar_interacoes(lang, inter_x_tmpl, inter_y_default)
+
 
     with tab_3d:
         mostrar_superficie_3d()
