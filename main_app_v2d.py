@@ -1087,51 +1087,148 @@ def section_results():
         st.markdown("---")
         st.subheader("🔗 Gráficos de interação entre fatores (S/N)")
 
-        st.caption(
-            "Selecione um fator para o eixo X e outro para formar as curvas. "
-            "O gráfico mostra a S/N média para cada combinação de níveis."
+        # Idioma específico desta seção
+        lang_int = st.radio(
+            "Idioma / Language (interações):",
+            ["Português", "English"],
+            index=0,
+            horizontal=True,
+            key="lang_inter_2d",
         )
 
+        if lang_int == "Português":
+            cap_text = (
+                "Selecione um fator para o eixo X e outro para formar as curvas. "
+                "O gráfico mostra a S/N média para cada combinação de níveis."
+            )
+            x_label_tpl = "Níveis de {fac}"
+            y_label_default = "S/N médio (dB)"
+            global_mean_label = "Média global (S/N)"
+            hover_sn = "S/N médio=%{y:.3f} dB"
+        else:
+            cap_text = (
+                "Select a factor for the X-axis and another to form the curves. "
+                "The plot shows the mean S/N for each combination of factor levels."
+            )
+            x_label_tpl = "Levels of {fac}"
+            y_label_default = "Average S/N (dB)"
+            global_mean_label = "Overall mean (S/N)"
+            hover_sn = "Mean S/N=%{y:.3f} dB"
+
+        if len(factor_cols) < 2:
+            st.info("São necessários pelo menos dois fatores para visualizar interações.")
+            return
+
+        st.caption(cap_text)
+
+        # Escolha dos fatores
         fac_x = st.selectbox(
-            "Fator no eixo X:",
+            "Fator no eixo X / X-axis factor:",
             factor_cols,
             index=0,
             key="inter_x",
         )
 
-        fac_l = st.selectbox(
-            "Fator para as curvas:",
+        fac_lines = st.selectbox(
+            "Fator para as curvas / Line factor:",
             [f for f in factor_cols if f != fac_x],
             index=0,
             key="inter_lines",
         )
 
-        tmp = df_join.copy()
-        tmp[fac_x] = tmp[fac_x].astype(str)
-        tmp[fac_l] = tmp[fac_l].astype(str)
+        # Prepara dados (garante string)
+        tmp_int = df_join.copy()
+        tmp_int[fac_x] = tmp_int[fac_x].astype(str)
+        tmp_int[fac_lines] = tmp_int[fac_lines].astype(str)
 
-        g = (
-            tmp
-            .groupby([fac_x, fac_l])["_SN"]
+        # S/N médio por combinação (fac_x, fac_lines)
+        mean_inter = (
+            tmp_int
+            .groupby([fac_x, fac_lines])["_SN"]
             .mean()
             .reset_index()
         )
 
-        fig = go.Figure()
-        for lvl in sorted(g[fac_l].unique()):
-            sub = g[g[fac_l] == lvl]
-            fig.add_trace(
+        # Média global de S/N na interação
+        grand_mean_int = float(mean_inter["_SN"].mean())
+
+        # Ordenação "natural" 1,2,3,...
+        def _nat_sort(vals):
+            try:
+                return sorted(vals, key=lambda v: int(v))
+            except Exception:
+                return sorted(vals)
+
+        x_levels = _nat_sort(mean_inter[fac_x].unique().tolist())
+        line_levels = _nat_sort(mean_inter[fac_lines].unique().tolist())
+
+        # Figura de interação
+        fig_int = go.Figure()
+
+        # 🔹 Símbolos para distinguir curvas (colorblind-friendly)
+        marker_symbols = [
+            "circle",
+            "square",
+            "diamond",
+            "cross",
+            "x",
+            "triangle-up",
+            "triangle-down",
+            "triangle-left",
+            "triangle-right",
+            "star",
+            "hexagon",
+            "hexagon2",
+            "pentagon",
+        ]
+
+        for idx, lvl in enumerate(line_levels):
+            df_line = mean_inter[mean_inter[fac_lines] == lvl]
+            y_vals = []
+            for xv in x_levels:
+                sub = df_line[df_line[fac_x] == xv]
+                y_vals.append(
+                    float(sub["_SN"].iloc[0]) if not sub.empty else float("nan")
+                )
+
+            symbol = marker_symbols[idx % len(marker_symbols)]
+
+            fig_int.add_trace(
                 go.Scatter(
-                    x=sub[fac_x],
-                    y=sub["_SN"],
+                    x=x_levels,
+                    y=y_vals,
                     mode="lines+markers",
-                    name=f"{fac_l}={lvl}",
+                    name=f"{fac_lines} = {lvl}",
+                    marker=dict(
+                        symbol=symbol,
+                        size=9,
+                        line=dict(width=1),
+                    ),
+                    line=dict(width=2),
+                    hovertemplate=(
+                        f"{fac_x}=%{{x}}<br>"
+                        f"{fac_lines}={lvl}<br>"
+                        f"{hover_sn}<extra></extra>"
+                    ),
                 )
             )
 
-        # Rótulos default em função do idioma/templated
-        default_x_label = inter_x_tmpl.format(fac_x=fac_x)
-        default_y_label = inter_y_default
+        # 👉 Reta da média global
+        if not math.isnan(grand_mean_int):
+            fig_int.add_trace(
+                go.Scatter(
+                    x=x_levels,
+                    y=[grand_mean_int] * len(x_levels),
+                    mode="lines",
+                    name=global_mean_label,
+                    line=dict(dash="dash"),
+                    hovertemplate=f"{global_mean_label}=%{{y:.3f}} dB<extra></extra>",
+                )
+            )
+
+        # Rótulos padrão (podem ser editados abaixo)
+        default_x_label = x_label_tpl.format(fac=fac_x)
+        default_y_label = y_label_default
 
         c_ax1, c_ax2 = st.columns(2)
         with c_ax1:
@@ -1147,12 +1244,134 @@ def section_results():
                 key="y_label_inter",
             )
 
-        fig.update_layout(
+        fig_int.update_layout(
             xaxis_title=x_label,
             yaxis_title=y_label,
             hovermode="x",
+            margin=dict(l=10, r=10, t=40, b=40),
         )
-        st.plotly_chart(fig, use_container_width=True)
+
+        st.plotly_chart(fig_int, use_container_width=True)
+
+        # =============================================
+        # 📄 Baixar gráfico de interação (leve)
+        # =============================================
+        st.markdown("### 📄 Baixar gráfico de interação")
+
+        color_mode_int = st.radio(
+            "Modo de cores para exportação:",
+            ["Cores (original)", "Preto e branco"],
+            index=0,
+            key="color_mode_interaction",
+            help="A visualização na tela permanece em cores. A opção afeta apenas os arquivos baixados.",
+        )
+
+        # Cópia para exportação
+        fig_exp_int = go.Figure(fig_int.to_dict())
+
+        export_width_int = 900
+        export_height_int = 600
+
+        fig_exp_int.update_layout(
+            width=export_width_int,
+            height=export_height_int,
+            margin=dict(l=70, r=40, t=60, b=70),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            template="plotly_white",
+        )
+
+        # Preto e branco (opcional)
+        if color_mode_int == "Preto e branco":
+            dash_cycle = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+            t_idx = 0
+            for tr in fig_exp_int.data:
+                if isinstance(tr, go.Scatter):
+                    tr.update(
+                        line=dict(
+                            color="black",
+                            width=2,
+                            dash=dash_cycle[t_idx % len(dash_cycle)],
+                        ),
+                        marker=dict(color="black", size=7),
+                    )
+                    t_idx += 1
+
+        # Função auxiliar para exportar (gerada SÓ quando o usuário clicar)
+        def _export_bytes_int(fmt: str):
+            try:
+                return fig_exp_int.to_image(
+                    format=fmt,
+                    scale=2,
+                    width=export_width_int,
+                    height=export_height_int,
+                )
+            except Exception:
+                st.warning(
+                    "Para exportar imagens, é necessário o pacote **kaleido**.\n\n"
+                    "Instale com:\n\n"
+                    "`pip install -U kaleido`\n\n"
+                    "ou\n\n"
+                    "`conda install -c conda-forge python-kaleido -y`"
+                )
+                raise
+
+        col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+
+        with col_i1:
+            if st.button("📥 Gerar PNG", key="btn_int_png"):
+                try:
+                    png_bytes_int = _export_bytes_int("png")
+                    st.download_button(
+                        "Baixar PNG",
+                        data=png_bytes_int,
+                        file_name="grafico_interacao_SN.png",
+                        mime="image/png",
+                        key="dl_int_png",
+                    )
+                except Exception:
+                    pass
+
+        with col_i2:
+            if st.button("📥 Gerar SVG", key="btn_int_svg"):
+                try:
+                    svg_bytes_int = _export_bytes_int("svg")
+                    st.download_button(
+                        "Baixar SVG (vetorial)",
+                        data=svg_bytes_int,
+                        file_name="grafico_interacao_SN.svg",
+                        mime="image/svg+xml",
+                        key="dl_int_svg",
+                    )
+                except Exception:
+                    pass
+
+        with col_i3:
+            if st.button("📥 Gerar PDF", key="btn_int_pdf"):
+                try:
+                    pdf_bytes_int = _export_bytes_int("pdf")
+                    st.download_button(
+                        "Baixar PDF",
+                        data=pdf_bytes_int,
+                        file_name="grafico_interacao_SN.pdf",
+                        mime="application/pdf",
+                        key="dl_int_pdf",
+                    )
+                except Exception:
+                    pass
+
+        with col_i4:
+            if st.button("📥 Gerar HTML", key="btn_int_html"):
+                html_bytes_int = pio.to_html(
+                    fig_int, include_plotlyjs="cdn", full_html=False
+                ).encode("utf-8")
+                st.download_button(
+                    "Baixar HTML (interativo)",
+                    data=html_bytes_int,
+                    file_name="grafico_interacao_SN.html",
+                    mime="text/html",
+                    key="dl_int_html",
+                )
 
 
 
