@@ -20,22 +20,22 @@ st.set_page_config(page_title="TaguchiApp", layout="wide")
 
 logo = Image.open("assets/logo_taguchiapp.png")
 
-col_logo, col_title = st.columns([2, 6])
+# Logo no canto superior esquerdo
+st.image(logo, width=250)
 
-with col_logo:
-    st.image(logo, width=160)
+# Texto logo abaixo da imagem
+st.markdown(
+    """
+    <div style="font-size:16px; font-weight:bold; margin-top: 10px;">
+        Planejamento e Análise Experimental Taguchi<br>
+        Versão 25.03
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-with col_title:
-    st.markdown("<br>", unsafe_allow_html=True)  # <-- baixa o texto
-    st.title("TaguchiApp")
-    st.caption(
-        """
-        <div style="font-size:16px; font-weight:bold;">
-            Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.02
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+# Linha separadora (opcional)
+st.markdown("---")
 
 
 # aqui embaixo vêm as suas funções: oa_from_name, built_in_catalog, section_factors_and_oa, section_results, etc.
