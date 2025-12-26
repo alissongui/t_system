@@ -2107,8 +2107,6 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         )
 
 
-
-        st.markdown("---")
     
     def regressao_multipla():
         st.subheader("📉 Regressão múltipla (opcional)")
