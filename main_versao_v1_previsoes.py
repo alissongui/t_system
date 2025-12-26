@@ -9,6 +9,7 @@ import io
 from itertools import product
 from datetime import datetime
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # (se tiver scipy / pyDOE, ficam aqui também)
 
@@ -17,15 +18,25 @@ import matplotlib.pyplot as plt
 # =============================================
 st.set_page_config(page_title="TaguchiApp", layout="wide")
 
-st.title("TaguchiApp")
-st.caption(
+logo = Image.open("assets/logo_taguchiapp.png")
+
+# Logo no canto superior esquerdo
+st.image(logo, width=250)
+
+# Texto logo abaixo da imagem
+st.markdown(
     """
-    <div style="font-size:16px; font-weight:bold;">
-        Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.02<br><br>
+    <div style="font-size:16px; font-weight:bold; margin-top: 10px;">
+        Planejamento e Análise Experimental Taguchi<br>
+        Versão 25.03
     </div>
     """,
     unsafe_allow_html=True
 )
+
+# Linha separadora (opcional)
+st.markdown("---")
+
 
 # aqui embaixo vêm as suas funções: oa_from_name, built_in_catalog, section_factors_and_oa, section_results, etc.
 
@@ -47,6 +58,23 @@ try:
 except Exception:
     HAS_PYDOE3 = False
     get_orthogonal_array = None
+
+
+# ---------------------------------------------
+# Variável de interesse
+# ---------------------------------------------
+var_label = st.text_input(
+    "Variável de interesse (ex.: Produção de H₂)",
+    "Produção de H₂",
+    help="Digite o nome da variável de interesse. Tecle ENTER ao finalizar!"
+)
+
+if var_label:
+    st.session_state["var_label"] = var_label
+    st.success(f"✅ **Variável definida:** {var_label}")
+else:
+    st.session_state["var_label"] = "Produção de H₂"
+    st.write("**Variável definida:** Produção de H₂")
 
 
 # ============================
@@ -371,6 +399,119 @@ def section_factors_and_oa():
 
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
+
+
+
+def _predict_combo(level_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan):
+    # Y
+    y_by_run = np.asarray(mean_y, dtype=float)
+    Y_bar = float(np.nanmean(y_by_run))
+    efeitos_y = []
+
+    for fac in factor_cols:
+        nivel = str(level_dict[fac])
+        mask = (df_plan[fac].astype(str) == nivel).values
+        media_nivel = float(np.nanmean(y_by_run[mask])) if mask.any() else np.nan
+        efeitos_y.append(media_nivel - Y_bar)
+
+    y_pred = float(Y_bar + np.nansum(efeitos_y))
+
+    # S/N
+    sn_bar = float(df_effects[sn_col].mean())
+    efeitos_sn = []
+
+    for fac in factor_cols:
+        nivel = str(level_dict[fac])
+
+        fac_df = per_factor_tables.get(fac, pd.DataFrame())
+        media_sn = np.nan
+
+        if (not fac_df.empty) and {"Nível", "S/N médio (dB)"}.issubset(fac_df.columns):
+            media_sn = fac_df.loc[fac_df["Nível"].astype(str) == nivel, "S/N médio (dB)"].mean()
+
+        if pd.isna(media_sn):
+            mask = (df_plan[fac].astype(str) == nivel)
+            media_sn = float(df_effects.loc[mask, sn_col].mean())
+
+        efeitos_sn.append(media_sn - sn_bar)
+
+    eta_pred = float(sn_bar + np.nansum(efeitos_sn))
+
+    return y_pred, eta_pred
+
+
+def render_exportacoes_predicao(
+    user_levels,
+    Y_hat,
+    eta_hat,
+    var_label,
+    mean_y,
+    df_effects,
+    sn_col,
+    per_factor_tables,
+    factor_cols,
+    df_plan,
+):
+    # ---------- (1) Ensaio atual ----------
+    row_dict = {fac: user_levels[fac] for fac in factor_cols}
+
+    if np.isfinite(Y_hat) and np.isfinite(eta_hat):
+        y_pred_one, eta_pred_one = (Y_hat, eta_hat)
+    else:
+        y_pred_one, eta_pred_one = _predict_combo(
+            row_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan
+        )
+
+    df_pred_one = pd.DataFrame([{
+        **row_dict,
+        f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred_one) else round(y_pred_one, 6)),
+        "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred_one) else round(eta_pred_one, 6)),
+    }])
+
+    buf_one = io.StringIO()
+    df_pred_one.to_csv(buf_one, index=False)
+    fname_one = f"ensaio_predito_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    # ---------- (2) Matriz fatorial completa ----------
+    levels_map = {fac: sorted(df_plan[fac].astype(str).unique()) for fac in factor_cols}
+
+    rows = []
+    for combo in product(*[levels_map[fac] for fac in factor_cols]):
+        combo_dict = {fac: level for fac, level in zip(factor_cols, combo)}
+        y_pred, eta_pred = _predict_combo(
+            combo_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan
+        )
+        rows.append({
+            **combo_dict,
+            f"Previsão {var_label}": (np.nan if not np.isfinite(y_pred) else round(y_pred, 6)),
+            "Previsão S/N (dB)": (np.nan if not np.isfinite(eta_pred) else round(eta_pred, 6)),
+        })
+
+    df_full = pd.DataFrame(rows)
+    buf_full = io.StringIO()
+    df_full.to_csv(buf_full, index=False)
+    fname_full = f"matriz_fatorial_predicoes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col_b1, col_b2 = st.columns(2)
+
+    with col_b1:
+        st.download_button(
+            "📥 Baixar ensaio (predição atual)",
+            buf_one.getvalue().encode("utf-8"),
+            file_name=fname_one,
+            mime="text/csv",
+            key="dl_pred_one",
+        )
+
+    with col_b2:
+        st.download_button(
+            "📥 Baixar matriz fatorial completa (predições)",
+            buf_full.getvalue().encode("utf-8"),
+            file_name=fname_full,
+            mime="text/csv",
+            key="dl_pred_full",
+        )
 
 
 # =========================
@@ -1672,21 +1813,122 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         st.dataframe(df_pred.round(3))
 
     def predicao_usuario():
+        st.markdown("---")
         st.subheader("🧮 Predição para qualquer combinação")
-
+    
+        # ----------------- Entrada do usuário -----------------
         levels = {}
         for f in factor_cols:
             lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z))
             levels[f] = st.selectbox(f"Nível para {f}", lvls)
-
+    
+        # ----------------- Predição S/N (modelo aditivo clássico) -----------------
         SN_bar = np.mean(SNR)
-        somaSN = 0
+        somaSN = 0.0
+    
         for f, lvl in levels.items():
             somaSN += per_factor[f].loc[lvl, "S/N médio"]
+    
         pred_sn = somaSN - (len(factor_cols) - 1) * SN_bar
+    
+        # ----------------- Predição da resposta (se não existir, fica n/d) -----------------
+        Y_hat = np.nan          # mantém compatibilidade com o layout
+        eta_hat = pred_sn      # apenas alias lógico, sem mudar o cálculo
 
-        st.success(f"**S/N predito = {pred_sn:.3f} dB**")
+        # ----------------- Predição da variável de interesse (modelo aditivo) -----------------
+        Y_bar = df_join["_Ymean"].mean()  # ou df_plan["_Ymean"].mean(), dependendo de onde está a coluna
+        
+        somaY = 0.0
+        for f, lvl in levels.items():
+            # média de Y no nível escolhido (marginalizando os demais fatores)
+            somaY += df_join[df_join[f].astype(str) == str(lvl)]["_Ymean"].mean()
+        
+        Y_hat = somaY - (len(factor_cols) - 1) * Y_bar
 
+    
+        # ----------------- Resultados -----------------
+        st.markdown("🔍 **Resultados das predições no ponto fornecido pelo usuário**")
+    
+        col1, col2 = st.columns(2)
+    
+        with col1:
+            st.markdown(
+                f"""
+                <div style="text-align:center; margin: 14px 0 8px;">
+                  <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                              border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                    <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                      Previsão para {var_label}
+                    </div>
+                    <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                      {("n/d" if np.isnan(Y_hat) else f"{Y_hat:.3f}")}
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    
+        with col2:
+            st.markdown(
+                f"""
+                <div style="text-align:center; margin: 14px 0 8px;">
+                  <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                              border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                    <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                      Previsão para S/N (dB)
+                    </div>
+                    <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                      {("n/d" if np.isnan(pred_sn) else f"{pred_sn:.3f} dB")}
+                    </div>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+                # =========================
+        # 📥 Exportações de predição
+        # =========================
+        
+        # df_effects e sn_col (os mesmos padrões do resto do app)
+        df_effects = df_join.copy()
+        sn_col = "_SN"
+        
+        # monta per_factor_tables no formato esperado por _predict_combo()
+        per_factor_tables = {}
+        for fac in factor_cols:
+            tmp = df_effects.copy()
+            tmp[fac] = tmp[fac].astype(str)
+        
+            g = tmp.groupby(fac, as_index=True)[sn_col].mean()
+        
+            # ordenação natural (1,2,3,...) quando possível
+            try:
+                order_nat = sorted(g.index.tolist(), key=lambda s: int(s))
+            except Exception:
+                order_nat = sorted(g.index.tolist())
+        
+            g = g.reindex(order_nat)
+            per_factor_tables[fac] = pd.DataFrame({
+                "Nível": g.index.astype(str),
+                "S/N médio (dB)": g.values
+            })
+    
+        render_exportacoes_predicao(
+            user_levels=levels,
+            Y_hat=Y_hat,
+            eta_hat=eta_hat,
+            var_label=var_label,
+            mean_y=mean_y,
+            df_effects=df_effects,
+            sn_col=sn_col,
+            per_factor_tables=per_factor_tables,
+            factor_cols=factor_cols,
+            df_plan=df_plan,
+        )
+        st.markdown("---")
+    
     def regressao_multipla():
         st.subheader("📉 Regressão múltipla (opcional)")
         ativar = st.checkbox("Ativar regressão múltipla", value=False)

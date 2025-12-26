@@ -8,6 +8,8 @@ import plotly.io as pio
 import io
 from itertools import product
 from datetime import datetime
+import matplotlib.pyplot as plt
+from PIL import Image
 
 # (se tiver scipy / pyDOE, ficam aqui também)
 
@@ -16,15 +18,25 @@ from datetime import datetime
 # =============================================
 st.set_page_config(page_title="TaguchiApp", layout="wide")
 
-st.title("TaguchiApp")
-st.caption(
+logo = Image.open("assets/logo_taguchiapp.png")
+
+# Logo no canto superior esquerdo
+st.image(logo, width=250)
+
+# Texto logo abaixo da imagem
+st.markdown(
     """
-    <div style="font-size:16px; font-weight:bold;">
-        Taguchi App — Planejamento e Análise Experimental Taguchi — Versão v25.02<br><br>
+    <div style="font-size:16px; font-weight:bold; margin-top: 10px;">
+        Planejamento e Análise Experimental Taguchi<br>
+        Versão 25.03
     </div>
     """,
     unsafe_allow_html=True
 )
+
+# Linha separadora (opcional)
+st.markdown("---")
+
 
 # aqui embaixo vêm as suas funções: oa_from_name, built_in_catalog, section_factors_and_oa, section_results, etc.
 
@@ -1379,10 +1391,23 @@ def section_results():
         if len(factor_cols) < 2:
             return
 
-        st.subheader("🌐 Superfície 3D (Y médio × 2 fatores)")
+        st.subheader("🌐 Superfície de interação — média da razão S/N")
 
-        fx = st.selectbox("Fator X (3D):", factor_cols)
-        fy = st.selectbox("Fator Y (3D):", [f for f in factor_cols if f != fx])
+
+        st.caption( "O eixo Z representa a média da razão sinal-ruído (S/N) "
+                    "para cada combinação dos níveis dos dois fatores.")
+
+
+        fx = st.selectbox(
+            "Fator — eixo X:",
+            factor_cols
+        )
+        
+        fy = st.selectbox(
+            "Fator — eixo Y:",
+            [f for f in factor_cols if f != fx]
+        )
+
 
         df_tmp = df_join.copy()
         df_tmp[fx] = df_tmp[fx].astype(str)
@@ -1403,16 +1428,147 @@ def section_results():
             x=list(range(len(xs))),
             y=list(range(len(ys))),
             z=Z,
-            colorscale="Viridis"
+            colorscale="turbo",  # mais nítida que Viridis em muitos monitores
+            opacity=0.9,
+            contours=dict(z=dict(show=True, project_z=False))  # linhas de nível
         )])
+
+        
+        xv = np.arange(len(xs))
+        yv = np.arange(len(ys))
+        X, Y = np.meshgrid(xv, yv)
+        
+        z0 = float(np.nanmin(Z))  # plano XY
+        n_levels = 8
+        
+        levels = np.linspace(np.nanmin(Z), np.nanmax(Z), n_levels)
+        
+        cs = plt.contour(X, Y, Z, levels=levels)
+        plt.close()
+        
+        cmin = float(np.nanmin(Z))
+        cmax = float(np.nanmax(Z))
+        cmid = float(np.nanmean(Z))   # ou np.nanmedian(Z)
+        
+        fig.add_trace(go.Surface(
+            x=xv,
+            y=yv,
+            z=Z,
+            colorscale="turbo",
+            cmin=cmin,
+            cmax=cmax,
+            cmid=cmid,
+            opacity=0.95,
+            showscale=True
+        ))
+
+        
+        # Curvas de nível no plano XY
+        for level_segs in cs.allsegs:
+            for seg in level_segs:
+                fig.add_trace(go.Scatter3d(
+                    x=seg[:, 0],
+                    y=seg[:, 1],
+                    z=np.full(seg.shape[0], z0),
+                    mode="lines",
+                    line=dict(color="darkgreen", width=3, dash="dash"), 
+                    showlegend=False
+                ))
+
+
+        lang_surface_3d = st.radio(
+            "Idioma / Language (superfície 3D):",
+            ["Português", "English"],
+            index=0,
+            horizontal=True,
+            key="lang_surface_3d",
+        )
+        
+        if lang_surface_3d == "Português":
+            zaxis_label = "Média da razão S/N"
+        else:
+            zaxis_label = "Mean S/N ratio"
+        
+                        
         fig.update_layout(
             scene=dict(
-                xaxis=dict(ticktext=xs, tickvals=list(range(len(xs)))),
-                yaxis=dict(ticktext=ys, tickvals=list(range(len(ys)))),
-                zaxis_title=var_label
-            )
+                xaxis=dict(
+                    title=fx,
+                    ticktext=xs,
+                    tickvals=list(range(len(xs)))
+                ),
+                yaxis=dict(
+                    title=fy,
+                    ticktext=ys,
+                    tickvals=list(range(len(ys)))
+                ),
+                zaxis_title=zaxis_label,   # <-- aqui
+            ),
+            margin=dict(l=0, r=0, b=0, t=30),
         )
+
         st.plotly_chart(fig, use_container_width=True)
+
+
+        col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+        
+        with col_i1:
+            if st.button("📥 Gerar PNG", key="btn_surf3d_png"):
+                try:
+                    png_bytes = _export_bytes_int(fig, "png")
+                    st.download_button(
+                        "Baixar PNG",
+                        data=png_bytes,
+                        file_name="superficie_3d_interacao_SN.png",
+                        mime="image/png",
+                        key="dl_surf3d_png",
+                    )
+                except Exception:
+                    pass
+        
+        with col_i2:
+            if st.button("📥 Gerar SVG", key="btn_surf3d_svg"):
+                try:
+                    svg_bytes = _export_bytes_int(fig, "svg")
+                    st.download_button(
+                        "Baixar SVG (vetorial)",
+                        data=svg_bytes,
+                        file_name="superficie_3d_interacao_SN.svg",
+                        mime="image/svg+xml",
+                        key="dl_surf3d_svg",
+                    )
+                except Exception:
+                    pass
+        
+        with col_i3:
+            if st.button("📥 Gerar PDF", key="btn_surf3d_pdf"):
+                try:
+                    pdf_bytes = _export_bytes_int(fig, "pdf")
+                    st.download_button(
+                        "Baixar PDF",
+                        data=pdf_bytes,
+                        file_name="superficie_3d_interacao_SN.pdf",
+                        mime="application/pdf",
+                        key="dl_surf3d_pdf",
+                    )
+                except Exception:
+                    pass
+        
+        with col_i4:
+            if st.button("📥 Gerar HTML", key="btn_surf3d_html"):
+                html_bytes = pio.to_html(
+                    fig, include_plotlyjs="cdn", full_html=False
+                ).encode("utf-8")
+                st.download_button(
+                    "Baixar HTML (interativo)",
+                    data=html_bytes,
+                    file_name="superficie_3d_interacao_SN.html",
+                    mime="text/html",
+                    key="dl_surf3d_html",
+                )
+
+
+    
 
     def mostrar_regra_delta():
         st.markdown("---")
