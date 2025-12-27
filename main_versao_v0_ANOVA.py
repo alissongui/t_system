@@ -2363,13 +2363,146 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         Aba ANOVA – Análise de Variância do Planejamento Experimental (Taguchi).
         Implementação será feita posteriormente.
         """
-        st.subheader("📊 ANOVA")
-    
-        st.info(
-            "Esta aba será dedicada à análise de variância (ANOVA) "
-            "do planejamento experimental segundo a metodologia Taguchi.\n\n"
-            "Em desenvolvimento."
+        st.subheader("📊 ANOVA sobre a razão S/N (opcional)")
+
+        st.caption(
+            "Esta ANOVA é baseada na razão S/N por ensaio, usando apenas efeitos principais. "
+            "Ela decompõe a variação total de S/N em parcelas atribuídas a cada fator e ao erro."
         )
+
+        if st.toggle("🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴", value=False, key="show_anova_help"):
+            st.markdown(r"""
+            A ANOVA (Análise de Variância) aqui considera a **razão S/N de cada ensaio** como resposta
+            e decompõe a soma de quadrados total em:
+
+            - **Soma de Quadrados do Fator** ($SQ_k$): quanto cada fator $k$ contribui para a variação de S/N;  
+            - **Soma de Quadrados de Erro** $(SQ_{\textrm{erro}})$: variação não explicada pelos efeitos principais;  
+            - **Soma de Quadrados Total** $(SQ_{\textrm{total}})$: variação total da S/N em torno da média global.
+
+            Como o planejamento é ortogonal, a contribuição de cada fator é calculada por:
+            """)
+            st.latex(r"""
+            SQ_k \;=\; \sum_{\ell} n_{k,\ell}\,\bigl(\overline{\mathrm{S/N}}_{k,\ell}
+            - \overline{\mathrm{S/N}}_{\text{global}}\bigr)^2
+            """)
+            st.markdown(r"""
+            em que $\overline{\mathrm{S/N}}_{k,\ell}$ é a média de S/N no nível $\ell$ do fator $k$
+            e $n_{k,\ell}$ é o número de ensaios nesse nível.
+            """)
+
+            st.markdown(r"""
+            A **soma de quadrados total** é dada por:
+            """)    
+            st.latex(r"""
+            SQ_{\text{total}} = \sum_{i=1}^{N} \left(\mathrm{S/N}_i -\overline{\mathrm{S/N}}_{\text{global}}\right)^2
+            """)
+            
+            st.markdown(r"""
+            e a **soma de quadrados do erro** é obtida por diferença:
+            """)    
+            st.latex(r"""
+                SQ_{\text{erro}}
+                =
+                SQ_{\text{total}}
+                \;-\;
+                \sum_k SQ_k
+            """)
+            
+                
+            st.markdown(r"""
+                ### 📐 Termos usados na tabela ANOVA
+                A tabela exibida pelo aplicativo contém as seguintes colunas: 
+                - **GL (graus de liberdade)**  
+                  Para um fator com $L$ níveis: $$GL = L - 1$$  
+                  Para o erro:  $$GL_{\text{erro}} = GL_{\text{total}} - \sum_k GL_k$$
+
+               - **SQ (Soma de quadrados)**  Quantidade de variação explicada por cada fonte.  
+
+               - **QM (Quadrado Médio)**  É a variância média explicada pela fonte:  
+                  $$QM_k = \dfrac{SQ_k}{GL_k}\ \ $$   e   $$\ \ QM_{\text{erro}} = \dfrac{SQ_{\text{erro}}}{GL_{\text{erro}}}$$  
+
+               - **F (estatística F de Fisher)**  Mede o quanto a variância explicada pelo fator excede a variância residual:  $$F_k = \dfrac{QM_k}{QM_{\text{erro}}}$$  
+
+               - **p-valor**  Probabilidade de observar um valor de $F_k$ tão grande assumindo hipótese nula:   $$p_k = \mathbb{P}\left[F_{GL_k,\,GL_{\text{erro}}} \ge F_k\right]$$  
+                  Fatores com $p_k < 0{,}05$ são considerados **estatisticamente significativos**.
+
+               - **Contribuição (%)**  Mede a importância relativa do fator na variação total:  
+            """)
+            st.latex(r"""
+                \text{Contribuição}_k(\%) \;=\;
+                100 \cdot \frac{SQ_k}{SQ_{\text{total}}}
+            """)
+
+
+            st.markdown(r"""
+                ---
+                
+                ### ⚠️ Quando não existe $SQ_{\textrm{erro}}$?
+                
+                Em matrizes como **L9 com 4 fatores**, os fatores consomem todos os GL:
+                
+                $$GL_{\text{erro}} = 0$$
+                
+                Nesse caso **não é possível calcular**:
+                - $QM_{\text{erro}}$  
+                - $F$  
+                - p-valores  
+                
+                A ANOVA mostra apenas **SQ** e **GL**, sem testes estatísticos.
+            """) 
+
+            st.markdown(r"""
+                ### 🔁 Pooling (Agrupamento no Erro)
+                Quando $GL_{\text{erro}} = 0$, a ANOVA torna-se estatisticamente indeterminada, pois não é possível calcular $QM_{\text{erro}}$. Para contornar esse problema em planejamentos ortogonais saturados (como L9 com 4 fatores), aplica-se o procedimento conhecido como **pooling**.
+                
+                Nesse procedimento, fatores cuja contribuição é considerada pequena são tratados como fontes de variação não sistemática. Assim, seus termos são incorporados ao termo de erro, redefinindo:
+                
+                $$
+                SQ_{\text{erro}}^{(\text{pool})}
+                = SQ_{\text{erro}}^{(\text{bruto})}
+                + \sum_{k \in \mathcal{P}} SQ_k,
+                $$
+                
+                $$
+                GL_{\text{erro}}^{(\text{pool})}
+                = GL_{\text{erro}}^{(\text{bruto})}
+                + \sum_{k \in \mathcal{P}} GL_k,
+                $$
+                
+                onde $\mathcal{P}$ denota o conjunto de fatores agrupados no erro.
+                
+                Essa redefinição produz um termo de erro com
+                $GL_{\text{erro}}^{(\text{pool})} > 0$, permitindo calcular:
+                
+                $$
+                QM_{\text{erro}}^{(\text{pool})}
+                = \frac{SQ_{\text{erro}}^{(\text{pool})}}
+                {GL_{\text{erro}}^{(\text{pool})}},
+                $$
+                
+                e, consequentemente, as estatísticas $F_k$ e respectivos p-valores.
+            """)
+
+
+            st.markdown(r"""
+                ### 🤖 Estratégia de pooling usada pelo aplicativo
+                    
+                Quando $GL_{\text{erro}} \le 0$:
+                    
+                1. O app ordena os fatores pela **contribuição (%)**.  
+                2. Fatores com contribuição $<5\%$ são candidatos naturais.  
+                3. Se nenhum tiver $<5\%$, o app escolhe o **menor** $SQ$.  
+                4. O app nunca agrupa **todos** os fatores.  
+                5. Uma vez criado o erro com $GL > 0$, calcula $F$, p-valor e contribuições.  
+                6. O app exibe quais fatores foram agrupados.
+                    
+                Assim, a ANOVA fica estatisticamente válida com interpretação completa.
+            """)
+
+        st.markdown("---")
+
+
+        
 
     
     def regressao_multipla():
