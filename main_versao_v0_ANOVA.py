@@ -2099,7 +2099,6 @@ def section_results():
     
 
     def mostrar_regra_delta():
-        st.markdown("---")
         st.subheader("📐 A regra Delta por fator")
 
         # 🔽 Toggle explicativo (igual ao app_regressao)
@@ -2359,6 +2358,18 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             nominal_target=nominal_target,
         )
 
+    def anova_taguchi():
+        """
+        Aba ANOVA – Análise de Variância do Planejamento Experimental (Taguchi).
+        Implementação será feita posteriormente.
+        """
+        st.subheader("📊 ANOVA")
+    
+        st.info(
+            "Esta aba será dedicada à análise de variância (ANOVA) "
+            "do planejamento experimental segundo a metodologia Taguchi.\n\n"
+            "Em desenvolvimento."
+        )
 
     
     def regressao_multipla():
@@ -2408,8 +2419,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
 
-    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
-        ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições", "Regressão múltipla"]
+    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_anova, tab_reg = st.tabs(
+        ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições","ANOVA", "Regressão múltipla"]
     )
 
     with tab_efeitos:
@@ -2430,6 +2441,9 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     with tab_pred:
         tabelas_observado_predito()
         predicao_usuario()
+
+    with tab_anova:
+        anova_taguchi()
 
     with tab_reg:
         regressao_multipla()
