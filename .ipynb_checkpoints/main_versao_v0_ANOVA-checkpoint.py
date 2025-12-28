@@ -20,20 +20,29 @@ st.set_page_config(page_title="TaguchiApp", layout="wide")
 
 logo = Image.open("assets/logo_taguchiapp.png")
 
-# Logo no canto superior esquerdo
-st.image(logo, width=250)
+# Layout
+col1, col2 = st.columns([1, 2])
 
-# Texto logo abaixo da imagem
-st.markdown(
-    """
-    <div style="font-size:16px; font-weight:bold; margin-top: 10px;">
-        Planejamento e Análise Experimental Taguchi<br>
-        Versão 25.03
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+with col1:
+    st.image(logo, width=250)
 
+with col2:
+    # Ajuste fino: diminuí o padding-top para 3px
+    st.markdown(
+        """
+        <div style="float: right; text-align: right; max-width: 400px; padding-top: 20px;">
+            <h3 style="font-size: 20px; font-weight: bold; 
+                       margin: 0 0 1px 0; line-height: 0; color: #1f3a5e;">
+                Planejamento e Análise Experimental Taguchi
+            </h3>
+            <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
+                Versão 25.03
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
 # Linha separadora (opcional)
 st.markdown("---")
 
