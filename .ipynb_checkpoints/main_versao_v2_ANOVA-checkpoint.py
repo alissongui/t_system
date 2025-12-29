@@ -293,6 +293,7 @@ def section_factors_and_oa():
             st.success("✅ Arquivo carregado com sucesso!")
             st.dataframe(df_fatores, use_container_width=True, hide_index=True)  # <- sem índice
 
+            st.markdown("---")
             st.subheader("🔍 Análise Automática dos Fatores")
             fatores = df_fatores['Factor'].astype(str).tolist()
             num_fatores = len(fatores)
@@ -317,6 +318,7 @@ def section_factors_and_oa():
             c3.metric("Graus de Liberdade Necessários", dof_necessario)
             c4.metric("Experimentos no Fatorial Completo", full_factorial_runs(niveis_por_fator))
 
+            st.markdown("---")
             st.subheader("🎯 Matrizes Ortogonais Recomendadas")
             catalog = built_in_catalog()
             matrizes_candidatas = []
@@ -358,6 +360,7 @@ def section_factors_and_oa():
             st.dataframe(df_recomendacoes, use_container_width=True, hide_index=True)  # <- sem índice
             st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
 
+            st.markdown("---")
             st.subheader("🎛️ Seleção da Matriz Ortogonal")
             matriz_opcoes = [m[0] for m in matrizes_candidatas]
             matriz_selecionada = st.selectbox(
@@ -402,13 +405,13 @@ def section_factors_and_oa():
                     st.session_state['step'] = 'results'
 
                     st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
-
+                
                 except Exception as e:
                     st.error(f"❌ Erro ao gerar a matriz: {str(e)}")
-
+                
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
-
+        st.markdown("---")
 
 def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: str):
     # Vetor de S/N por ensaio
@@ -2746,8 +2749,12 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             if meta.get("used_pooling") and meta.get("pooled_names"):
                 pooled_str = ", ".join(meta["pooled_names"])
                 st.info(
-                    f"🔁 **Pooling automático ativado**: fatores com baixa contribuição agrupados no erro: **{pooled_str}**."
+                    "🔁 **Pooling automático aplicado**: "
+                    "fatores com contribuição percentual reduzida foram incorporados ao termo de erro "
+                    f"para viabilizar a estimativa estatística. "
+                    f"Fator(es) agrupado(s): **{pooled_str}**."
                 )
+
         
             # (opcional) tabela dos fatores poolados com contribuição original
             if meta.get("used_pooling") and meta.get("pooled_names"):
@@ -2783,6 +2790,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 "Se desejar p-valores, instale SciPy no ambiente de execução:\n\n"
                 "`pip install scipy`"
             )
+        st.markdown("---")
     
 
     
@@ -2834,7 +2842,12 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
     tab_efeitos, tab_inter, tab_3d, tab_pred, tab_anova, tab_reg = st.tabs(
-        ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições","ANOVA", "Regressão múltipla"]
+        ["Efeitos e Delta", 
+         "Interações (2D)", 
+         "Interações (3D)", 
+         "Predições",
+         "ANOVA", 
+         "Regressão múltipla"]
     )
 
     with tab_efeitos:
