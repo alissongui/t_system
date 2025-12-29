@@ -20,20 +20,29 @@ st.set_page_config(page_title="TaguchiApp", layout="wide")
 
 logo = Image.open("assets/logo_taguchiapp.png")
 
-# Logo no canto superior esquerdo
-st.image(logo, width=250)
+# Layout
+col1, col2 = st.columns([1, 2])
 
-# Texto logo abaixo da imagem
-st.markdown(
-    """
-    <div style="font-size:16px; font-weight:bold; margin-top: 10px;">
-        Planejamento e Análise Experimental Taguchi<br>
-        Versão 25.03
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+with col1:
+    st.image(logo, width=250)
 
+with col2:
+    # Ajuste fino: diminuí o padding-top para 3px
+    st.markdown(
+        """
+        <div style="float: right; text-align: right; max-width: 400px; padding-top: 20px;">
+            <h3 style="font-size: 20px; font-weight: bold; 
+                       margin: 0 0 1px 0; line-height: 0; color: #1f3a5e;">
+                Planejamento e Análise Experimental Taguchi
+            </h3>
+            <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
+                Versão 25.03
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
 # Linha separadora (opcional)
 st.markdown("---")
 
@@ -284,6 +293,7 @@ def section_factors_and_oa():
             st.success("✅ Arquivo carregado com sucesso!")
             st.dataframe(df_fatores, use_container_width=True, hide_index=True)  # <- sem índice
 
+            st.markdown("---")
             st.subheader("🔍 Análise Automática dos Fatores")
             fatores = df_fatores['Factor'].astype(str).tolist()
             num_fatores = len(fatores)
@@ -308,6 +318,7 @@ def section_factors_and_oa():
             c3.metric("Graus de Liberdade Necessários", dof_necessario)
             c4.metric("Experimentos no Fatorial Completo", full_factorial_runs(niveis_por_fator))
 
+            st.markdown("---")
             st.subheader("🎯 Matrizes Ortogonais Recomendadas")
             catalog = built_in_catalog()
             matrizes_candidatas = []
@@ -349,6 +360,7 @@ def section_factors_and_oa():
             st.dataframe(df_recomendacoes, use_container_width=True, hide_index=True)  # <- sem índice
             st.caption("ℹ️ Economia de corridas em relação ao fatorial completo")
 
+            st.markdown("---")
             st.subheader("🎛️ Seleção da Matriz Ortogonal")
             matriz_opcoes = [m[0] for m in matrizes_candidatas]
             matriz_selecionada = st.selectbox(
@@ -393,13 +405,220 @@ def section_factors_and_oa():
                     st.session_state['step'] = 'results'
 
                     st.success(f"✅ Matriz {matriz_selecionada} gerada com sucesso!")
-
+                
                 except Exception as e:
                     st.error(f"❌ Erro ao gerar a matriz: {str(e)}")
-
+                
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo: {str(e)}")
+        st.markdown("---")
 
+def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: str):
+    # Vetor de S/N por ensaio
+    y_sn = df_effects[sn_col].to_numpy(dtype=float)
+    N = len(y_sn)
+
+    if N <= 1:
+        return None, {"error": "Número insuficiente de ensaios para calcular ANOVA."}
+
+    grand_mean_sn = float(np.nanmean(y_sn))
+    ss_total = float(np.nansum((y_sn - grand_mean_sn) ** 2))
+    df_total = N - 1
+
+    # Soma de quadrados por fator
+    factor_entries = []
+    ss_factors_sum = 0.0
+    df_factors_sum = 0
+
+    for fac in factor_cols:
+        g = df_effects.groupby(df_effects[fac].astype(str))[sn_col]
+        means = g.mean()
+        counts = g.size()
+
+        ss_fac = float(np.nansum(counts * (means - grand_mean_sn) ** 2))
+        df_fac = len(means) - 1
+
+        ss_factors_sum += ss_fac
+        df_factors_sum += df_fac
+
+        factor_entries.append({"Fonte": fac, "gl": df_fac, "SQ": ss_fac})
+
+    # Erro bruto
+    ss_error_raw = ss_total - ss_factors_sum
+    if ss_error_raw < 0 and abs(ss_error_raw) < 1e-10:
+        ss_error_raw = 0.0
+    df_error_raw = df_total - df_factors_sum
+
+    # Contribuições originais
+    for ent in factor_entries:
+        ent["Contrib_orig"] = (100.0 * ent["SQ"] / ss_total) if ss_total > 0 else np.nan
+
+    used_pooling = False
+    pooled_names = []
+    kept_entries = factor_entries.copy()
+    ss_error = ss_error_raw
+    df_error = df_error_raw
+
+    # Pooling automático se não houver GL de erro
+    if df_error_raw <= 0:
+        used_pooling = True
+
+        sorted_entries = sorted(
+            factor_entries,
+            key=lambda e: (np.inf if np.isnan(e["Contrib_orig"]) else e["Contrib_orig"])
+        )
+
+        candidates = [
+            e for e in sorted_entries
+            if (not np.isnan(e["Contrib_orig"])) and (e["Contrib_orig"] < 5.0)
+        ]
+
+        if not candidates and len(sorted_entries) > 1:
+            candidates = [sorted_entries[0]]
+
+        if len(candidates) >= len(sorted_entries):
+            candidates = candidates[:-1]
+
+        ss_pool = 0.0
+        df_pool = 0
+        pooled_names = [ent["Fonte"] for ent in candidates]
+
+        for ent in candidates:
+            ss_pool += ent["SQ"]
+            df_pool += ent["gl"]
+
+        ss_error = max(0.0, ss_error_raw) + ss_pool
+        df_error = max(0, df_error_raw) + df_pool
+
+        kept_entries = [ent for ent in factor_entries if ent["Fonte"] not in pooled_names]
+
+        if df_error <= 0 or len(kept_entries) == 0:
+            used_pooling = False
+            pooled_names = []
+            kept_entries = factor_entries
+            ss_error = ss_error_raw
+            df_error = df_error_raw
+
+    rows_anova = []
+
+    # Caso sem GL de erro (nem com pooling)
+    if df_error <= 0:
+        for ent in factor_entries:
+            rows_anova.append({
+                "Fonte": ent["Fonte"],
+                "GL": ent["gl"],
+                "SQ": ent["SQ"],
+                "QM": np.nan,
+                "F": np.nan,
+                "p-valor": np.nan,
+                "Contribuição (%)": ent["Contrib_orig"],
+                "Significativo (5%)": "n/d",
+            })
+
+        rows_anova.append({
+            "Fonte": "Erro",
+            "GL": 0,
+            "SQ": ss_error_raw,
+            "QM": np.nan,
+            "F": np.nan,
+            "p-valor": np.nan,
+            "Contribuição (%)": np.nan,
+            "Significativo (5%)": "n/d",
+        })
+
+        rows_anova.append({
+            "Fonte": "Total",
+            "GL": df_total,
+            "SQ": ss_total,
+            "QM": np.nan,
+            "F": np.nan,
+            "p-valor": np.nan,
+            "Contribuição (%)": (100.0 if ss_total > 0 else np.nan),
+            "Significativo (5%)": "n/d",
+        })
+
+        anova_df = pd.DataFrame(rows_anova)
+        for col in ["SQ", "QM", "F", "p-valor", "Contribuição (%)"]:
+            if col in anova_df.columns:
+                anova_df[col] = pd.to_numeric(anova_df[col], errors="coerce").round(4)
+
+        meta = {
+            "used_pooling": used_pooling,
+            "pooled_names": pooled_names,
+            "factor_entries": factor_entries,
+            "kept_entries": kept_entries,
+            "ss_total": ss_total,
+        }
+        return anova_df, meta
+
+    # Caso com GL de erro (normal ou via pooling)
+    ms_error = ss_error / df_error if df_error > 0 else np.nan
+
+    def contrib_final_ss(ss_part):
+        return 100.0 * ss_part / ss_total if ss_total > 0 else np.nan
+
+    for ent in kept_entries:
+        gl_k = ent["gl"]
+        ss_k = ent["SQ"]
+        ms_k = ss_k / gl_k if gl_k > 0 else np.nan
+        F_k = ms_k / ms_error if (gl_k > 0 and ms_error > 0) else np.nan
+
+        if HAS_SCIPY and f_dist is not None and gl_k > 0 and df_error > 0 and not np.isnan(F_k):
+            try:
+                p_k = float(f_dist.sf(F_k, gl_k, df_error))
+            except Exception:
+                p_k = np.nan
+        else:
+            p_k = np.nan
+
+        signif = ("Sim (p < 0,05)" if (not np.isnan(p_k) and p_k < 0.05) else "Não") if not np.isnan(p_k) else "n/d"
+
+        rows_anova.append({
+            "Fonte": ent["Fonte"],
+            "GL": gl_k,
+            "SQ": ss_k,
+            "QM": ms_k,
+            "F": F_k,
+            "p-valor": p_k,
+            "Contribuição (%)": contrib_final_ss(ss_k),
+            "Significativo (5%)": signif,
+        })
+
+    rows_anova.append({
+        "Fonte": "Erro" + (" (com pooling)" if used_pooling else ""),
+        "GL": df_error,
+        "SQ": ss_error,
+        "QM": ms_error,
+        "F": np.nan,
+        "p-valor": np.nan,
+        "Contribuição (%)": contrib_final_ss(ss_error),
+        "Significativo (5%)": "n/d",
+    })
+
+    rows_anova.append({
+        "Fonte": "Total",
+        "GL": df_total,
+        "SQ": ss_total,
+        "QM": np.nan,
+        "F": np.nan,
+        "p-valor": np.nan,
+        "Contribuição (%)": (100.0 if ss_total > 0 else np.nan),
+        "Significativo (5%)": "n/d",
+    })
+
+    anova_df = pd.DataFrame(rows_anova)
+    for col in ["SQ", "QM", "F", "p-valor", "Contribuição (%)"]:
+        if col in anova_df.columns:
+            anova_df[col] = pd.to_numeric(anova_df[col], errors="coerce").round(4)
+
+    meta = {
+        "used_pooling": used_pooling,
+        "pooled_names": pooled_names,
+        "factor_entries": factor_entries,
+        "kept_entries": kept_entries,
+        "ss_total": ss_total,
+    }
+    return anova_df, meta
 
 
 def _predict_combo(level_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan):
@@ -731,31 +950,34 @@ def render_ensaio_confirmacao(
     nominal_target,
 ):
     """UI + cálculo do Ensaio de Confirmação (upload de matriz de réplicas)."""
-    st.subheader("🧪 Ensaio de confirmação")
+    st.subheader("🧪 Ensaios de confirmação")
 
     st.caption(
         "Use esta seção para comparar os resultados de um ensaio de confirmação "
         "com os valores preditos pelo modelo aditivo de efeitos principais."
     )
 
+    st.markdown("---")    
     st.markdown("**1️⃣ Escolha o ponto de análise do ensaio de confirmação**")
 
-    if "modo_conf_prev" not in st.session_state:
-        st.session_state["modo_conf_prev"] = "Ponto ótimo (recomendado)"
+    if "modo_conf_prev_conf" not in st.session_state:
+        st.session_state["modo_conf_prev_conf"] = "Ponto ótimo (recomendado)"
+
 
     modo_conf = st.radio(
         "Selecione a combinação de níveis a ser utilizada:",
         ("Ponto ótimo (recomendado)", "Outra combinação de níveis"),
         index=0,
-        key="modo_conf",
+        key="modo_conf_conf",
     )
 
+
     # ao mudar o modo, limpa estados do ensaio
-    if st.session_state["modo_conf_prev"] != modo_conf:
+    if st.session_state["modo_conf_prev_conf"] != modo_conf:
         for k in list(st.session_state.keys()):
             if k.startswith("conf_") or k.startswith("y_conf_") or k.startswith("sn_conf_") or k == "conf_upl":
                 st.session_state.pop(k, None)
-        st.session_state["modo_conf_prev"] = modo_conf
+        st.session_state["modo_conf_prev_conf"] = modo_conf
 
     conf_levels = {}
 
@@ -780,6 +1002,7 @@ def render_ensaio_confirmacao(
             )
 
     # ----------------- Passo 2 -----------------
+    st.markdown("---")
     st.markdown("**2️⃣ Carregue os resultados do ensaio de confirmação**")
 
     st.markdown(
@@ -825,6 +1048,7 @@ def render_ensaio_confirmacao(
             y_conf_vals = np.array([], dtype=float)
 
     # ----------------- Passo 3 -----------------
+    st.markdown("---")
     st.markdown("**3️⃣ Comparação entre médias observadas e valores preditos**")
 
     if y_conf_vals.size == 0:
@@ -2099,7 +2323,6 @@ def section_results():
     
 
     def mostrar_regra_delta():
-        st.markdown("---")
         st.subheader("📐 A regra Delta por fator")
 
         # 🔽 Toggle explicativo (igual ao app_regressao)
@@ -2347,22 +2570,226 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         # ================================================================
         nominal_target = alvo_nominal if sn_tipo == "Nominal é melhor" else None
 
-        render_ensaio_confirmacao(
-            factor_cols=factor_cols,
-            df_plan=df_plan,
-            var_label=var_label,
-            mean_y=mean_y,
-            df_effects=df_effects,
-            sn_col=sn_col,
-            per_factor_tables=per_factor_tables,
-            sn_tipo=sn_tipo,
-            nominal_target=nominal_target,
+
+    def anova_taguchi():
+        """
+        Aba ANOVA – Análise de Variância do Planejamento Experimental (Taguchi).
+        Implementação será feita posteriormente.
+        """
+        st.subheader("📊 ANOVA sobre a razão S/N")
+
+        st.caption(
+            "Esta ANOVA é baseada na razão S/N por ensaio, usando apenas efeitos principais. "
+            "Ela decompõe a variação total de S/N em parcelas atribuídas a cada fator e ao erro."
         )
 
+        if st.toggle("🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴", value=False, key="show_anova_help"):
+            st.markdown(r"""
+            A ANOVA (Análise de Variância) aqui considera a **razão S/N de cada ensaio** como resposta
+            e decompõe a soma de quadrados total em:
+
+            - **Soma de Quadrados do Fator** ($SQ_k$): quanto cada fator $k$ contribui para a variação de S/N;  
+            - **Soma de Quadrados de Erro** $(SQ_{\textrm{erro}})$: variação não explicada pelos efeitos principais;  
+            - **Soma de Quadrados Total** $(SQ_{\textrm{total}})$: variação total da S/N em torno da média global.
+
+            Como o planejamento é ortogonal, a contribuição de cada fator é calculada por:
+            """)
+            st.latex(r"""
+            SQ_k \;=\; \sum_{\ell} n_{k,\ell}\,\bigl(\overline{\mathrm{S/N}}_{k,\ell}
+            - \overline{\mathrm{S/N}}_{\text{global}}\bigr)^2
+            """)
+            st.markdown(r"""
+            em que $\overline{\mathrm{S/N}}_{k,\ell}$ é a média de S/N no nível $\ell$ do fator $k$
+            e $n_{k,\ell}$ é o número de ensaios nesse nível.
+            """)
+
+            st.markdown(r"""
+            A **soma de quadrados total** é dada por:
+            """)    
+            st.latex(r"""
+            SQ_{\text{total}} = \sum_{i=1}^{N} \left(\mathrm{S/N}_i -\overline{\mathrm{S/N}}_{\text{global}}\right)^2
+            """)
+            
+            st.markdown(r"""
+            e a **soma de quadrados do erro** é obtida por diferença:
+            """)    
+            st.latex(r"""
+                SQ_{\text{erro}}
+                =
+                SQ_{\text{total}}
+                \;-\;
+                \sum_k SQ_k
+            """)
+            
+                
+            st.markdown(r"""
+                ### 📐 Termos usados na tabela ANOVA
+                A tabela exibida pelo aplicativo contém as seguintes colunas: 
+                - **GL (graus de liberdade)**  
+                  Para um fator com $L$ níveis: $$GL = L - 1$$  
+                  Para o erro:  $$GL_{\text{erro}} = GL_{\text{total}} - \sum_k GL_k$$
+
+               - **SQ (Soma de quadrados)**  Quantidade de variação explicada por cada fonte.  
+
+               - **QM (Quadrado Médio)**  É a variância média explicada pela fonte:  
+                  $$QM_k = \dfrac{SQ_k}{GL_k}\ \ $$   e   $$\ \ QM_{\text{erro}} = \dfrac{SQ_{\text{erro}}}{GL_{\text{erro}}}$$  
+
+               - **F (estatística F de Fisher)**  Mede o quanto a variância explicada pelo fator excede a variância residual:  $$F_k = \dfrac{QM_k}{QM_{\text{erro}}}$$  
+
+               - **p-valor**  Probabilidade de observar um valor de $F_k$ tão grande assumindo hipótese nula:   $$p_k = \mathbb{P}\left[F_{GL_k,\,GL_{\text{erro}}} \ge F_k\right]$$  
+                  Fatores com $p_k < 0{,}05$ são considerados **estatisticamente significativos**.
+
+               - **Contribuição (%)**  Mede a importância relativa do fator na variação total:  
+            """)
+            st.latex(r"""
+                \text{Contribuição}_k(\%) \;=\;
+                100 \cdot \frac{SQ_k}{SQ_{\text{total}}}
+            """)
+
+
+            st.markdown(r"""
+                ---
+                
+                ### ⚠️ Quando não existe $SQ_{\textrm{erro}}$?
+                
+                Em matrizes como **L9 com 4 fatores**, os fatores consomem todos os GL:
+                
+                $$GL_{\text{erro}} = 0$$
+                
+                Nesse caso **não é possível calcular**:
+                - $QM_{\text{erro}}$  
+                - $F$  
+                - p-valores  
+                
+                A ANOVA mostra apenas **SQ** e **GL**, sem testes estatísticos.
+            """) 
+
+            st.markdown(r"""
+                ### 🔁 Pooling (Agrupamento no Erro)
+                Quando $GL_{\text{erro}} = 0$, a ANOVA torna-se estatisticamente indeterminada, pois não é possível calcular $QM_{\text{erro}}$. Para contornar esse problema em planejamentos ortogonais saturados (como L9 com 4 fatores), aplica-se o procedimento conhecido como **pooling**.
+                
+                Nesse procedimento, fatores cuja contribuição é considerada pequena são tratados como fontes de variação não sistemática. Assim, seus termos são incorporados ao termo de erro, redefinindo:
+                
+                $$
+                SQ_{\text{erro}}^{(\text{pool})}
+                = SQ_{\text{erro}}^{(\text{bruto})}
+                + \sum_{k \in \mathcal{P}} SQ_k,
+                $$
+                
+                $$
+                GL_{\text{erro}}^{(\text{pool})}
+                = GL_{\text{erro}}^{(\text{bruto})}
+                + \sum_{k \in \mathcal{P}} GL_k,
+                $$
+                
+                onde $\mathcal{P}$ denota o conjunto de fatores agrupados no erro.
+                
+                Essa redefinição produz um termo de erro com
+                $GL_{\text{erro}}^{(\text{pool})} > 0$, permitindo calcular:
+                
+                $$
+                QM_{\text{erro}}^{(\text{pool})}
+                = \frac{SQ_{\text{erro}}^{(\text{pool})}}
+                {GL_{\text{erro}}^{(\text{pool})}},
+                $$
+                
+                e, consequentemente, as estatísticas $F_k$ e respectivos p-valores.
+            """)
+
+
+            st.markdown(r"""
+                ### 🤖 Estratégia de pooling usada pelo aplicativo
+                    
+                Quando $GL_{\text{erro}} \le 0$:
+                    
+                1. O app ordena os fatores pela **contribuição (%)**.  
+                2. Fatores com contribuição $<5\%$ são candidatos naturais.  
+                3. Se nenhum tiver $<5\%$, o app escolhe o **menor** $SQ$.  
+                4. O app nunca agrupa **todos** os fatores.  
+                5. Uma vez criado o erro com $GL > 0$, calcula $F$, p-valor e contribuições.  
+                6. O app exibe quais fatores foram agrupados.
+                    
+                Assim, a ANOVA fica estatisticamente válida com interpretação completa.
+            """)
+
+        st.markdown("---")
+
+
+
+
+
+        # =========================================
+        # ANOVA (S/N como resposta) - aqui df_effects existe
+        # =========================================
+        df_effects = df_join.copy()
+        sn_col = "_SN"  # porque você criou df_join["_SN"] no calcular_sn()
+        
+        anova_df, meta = compute_anova_sn(df_effects=df_effects, factor_cols=factor_cols, sn_col=sn_col)
+        
+        if anova_df is None:
+            st.error("❌ " + meta.get("error", "Erro ao calcular ANOVA."))
+        else:
+            st.markdown("🔍 **Tabela ANOVA (razão S/N como resposta)**")
+            st.dataframe(anova_df, use_container_width=True, hide_index=True)
+    
+            st.caption(
+                "ℹ️ **Significativo (5%)**: "
+                "`Sim` = p < 0,05; "
+                "`Não` = p ≥ 0,05; "
+                "`n/d` = não determinado (sem GL de erro ou sem cálculo de p-valor)."
+            )
+            
+            # Mensagem de pooling (se aplicável)
+            if meta.get("used_pooling") and meta.get("pooled_names"):
+                pooled_str = ", ".join(meta["pooled_names"])
+                st.info(
+                    "🔁 **Pooling automático aplicado**: "
+                    "fatores com contribuição percentual reduzida foram incorporados ao termo de erro "
+                    f"para viabilizar a estimativa estatística. "
+                    f"Fator(es) agrupado(s): **{pooled_str}**."
+                )
+
+        
+            # (opcional) tabela dos fatores poolados com contribuição original
+            if meta.get("used_pooling") and meta.get("pooled_names"):
+                pooled_rows = []
+                for ent in meta.get("factor_entries", []):
+                    if ent["Fonte"] in meta["pooled_names"]:
+                        pooled_rows.append({
+                            "Fator poolado": ent["Fonte"],
+                            "SQ (original)": ent["SQ"],
+                            "Contribuição original (%)": ent["Contrib_orig"],
+                        })
+                if pooled_rows:
+                    pooled_df = pd.DataFrame(pooled_rows)
+                    for col in ["SQ (original)", "Contribuição original (%)"]:
+                        pooled_df[col] = pd.to_numeric(pooled_df[col], errors="coerce").round(4)
+                    st.markdown("📌 **Fatores agrupados no erro (pooling)**")
+                    st.dataframe(pooled_df, use_container_width=True, hide_index=True)
+        
+            # Download CSV
+            buf_anova = io.StringIO()
+            anova_df.to_csv(buf_anova, index=False)
+            st.download_button(
+                "📥 Baixar tabela ANOVA (CSV)",
+                data=buf_anova.getvalue().encode("utf-8"),
+                file_name=f"anova_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="dl_anova_sn",
+            )
+        
+        if not HAS_SCIPY:
+            st.info(
+                "ℹ️ Os p-valores não foram calculados porque o pacote **SciPy** não está disponível.\n"
+                "Se desejar p-valores, instale SciPy no ambiente de execução:\n\n"
+                "`pip install scipy`"
+            )
+        st.markdown("---")
+    
 
     
     def regressao_multipla():
-        st.subheader("📉 Regressão múltipla (opcional)")
+        st.subheader("📉 Regressão múltipla")
         ativar = st.checkbox("Ativar regressão múltipla", value=False)
         if not ativar:
             return
@@ -2408,8 +2835,14 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
 
-    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_reg = st.tabs(
-        ["Efeitos principais & Delta", "Interações entre Fatores (2D)", "Interações entre Fatores (3D)", "Predições", "Regressão múltipla"]
+    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_conf, tab_anova, tab_reg = st.tabs(
+        ["Efeitos e Delta", 
+         "Interações (2D)", 
+         "Interações (3D)", 
+         "Predições",
+         "Ensaios de confirmação", 
+         "ANOVA", 
+         "Regressão múltipla"]
     )
 
     with tab_efeitos:
@@ -2430,6 +2863,22 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     with tab_pred:
         tabelas_observado_predito()
         predicao_usuario()
+
+    with tab_conf:
+        render_ensaio_confirmacao(
+        factor_cols=factor_cols,
+        df_plan=df_plan,
+        var_label=var_label,
+        mean_y=mean_y,
+        df_effects=df_join,   # aqui é o df com _SN por ensaio
+        sn_col="_SN",
+        per_factor_tables=per_factor,
+        sn_tipo=sn_tipo,
+        nominal_target=None,
+    )
+
+    with tab_anova:
+        anova_taguchi()
 
     with tab_reg:
         regressao_multipla()
