@@ -2812,7 +2812,98 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             -  $\beta_i$ representa o coeficiente associado ao fator $i \in \{0,1,\cdots, p\}$;
             - $\boldsymbol{\varepsilon}  \in \R^{n \times 1}$ é denominado de vetor de erros, o qual representa a parte da resposta não explicada pelo modelo e assumida de natureza aleatória. Em geral, assume-se que: $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ (média nula) e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$ (matriz de covariância do vetor de erros é proporcional à matriz identidade de ordem $n$). 
             """)
+            st.markdown(r"""
+            O problema de Regressão Linear Múltipla consiste em estimar o vetor de coeficientes
+            $\boldsymbol{\beta}=(\beta_0,\beta_1,\ldots,\beta_p)^\top \in \mathbb{R}^{p+1}$
+            a partir dos dados observados, de modo a obter a melhor aproximação linear da resposta.
             
+            Para isso, adota-se o critério dos **Mínimos Quadrados Ordinários (MQO)**,
+            que consiste em minimizar a soma dos quadrados dos resíduos, isto é,
+            resolver o problema de otimização
+            """)
+            
+            st.latex(r"""
+            \min_{\boldsymbol{\beta}\in\mathbb{R}^{p+1}}
+            \; \|\mathbf{y}-\mathbf{X}\boldsymbol{\beta}\|^2,
+            """)
+            
+            st.markdown(r"""
+            em que $\mathbf{X}=[\,\mathbf{x}_0\ \mathbf{x}_1\ \cdots\ \mathbf{x}_p\,]\in\mathbb{R}^{n\times(p+1)}$
+            é a matriz de projeto do modelo.
+            
+            Sob a hipótese de posto completo da matriz $\mathbf{X}$,
+            a solução do problema é única e é dada por
+            """)
+            
+            st.latex(r"""
+            \hat{\boldsymbol{\beta}}
+            =
+            (\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top\mathbf{y}.
+            """)
+            
+            st.markdown(r"""
+            O vetor $\hat{\boldsymbol{\beta}}$ é denominado **estimador de mínimos quadrados**
+            e fornece a equação estimada do modelo,
+            $\hat{\mathbf{y}}=\mathbf{X}\hat{\boldsymbol{\beta}}$,
+            bem como o vetor de resíduos
+            $\hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}$.
+            
+            Geometricamente, o vetor $\hat{\mathbf{y}}$ corresponde à projeção ortogonal
+            de $\mathbf{y}$ sobre o espaço coluna de $\mathbf{X}$,
+            enquanto o vetor de resíduos é ortogonal a esse espaço.
+            """)
+
+            st.markdown(r"""
+            Sob as hipóteses usuais do modelo de regressão linear,
+            em particular $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$
+            e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$,
+            o estimador de mínimos quadrados apresenta propriedades estatísticas fundamentais.
+            Em particular, tem-se que:
+            """)
+            
+            st.latex(r"""
+            \mathbb{E}(\hat{\boldsymbol{\beta}})=\boldsymbol{\beta},
+            \qquad
+            \operatorname{Var}(\hat{\boldsymbol{\beta}})
+            =
+            \sigma^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            A primeira igualdade indica que $\hat{\boldsymbol{\beta}}$ é um **estimador não viesado**
+            do vetor de coeficientes $\boldsymbol{\beta}$.
+            A segunda expressa a **matriz de covariância do estimador**,
+            mostrando que a precisão das estimativas depende da variância do erro
+            e da estrutura da matriz de projeto $\mathbf{X}$.
+            """)
+            
+            st.markdown(r"""
+            Os resultados anteriores permitem definir e interpretar as principais
+            **métricas de avaliação** do modelo de Regressão Linear Múltipla,
+            as quais podem ser organizadas em quatro grupos:
+            qualidade do ajuste, erro preditivo, significância estatística
+            e diagnóstico do modelo.
+            """)
+
+            st.markdown(r"""
+            ### 1. Qualidade do ajuste
+            """)
+            st.markdown(r"""
+                A qualidade do ajuste é avaliada a partir da decomposição da variabilidade da resposta.
+                Definindo o vetor de resíduos
+                $\hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}$
+                e o vetor centrado
+                $\mathbf{y}_c=\mathbf{y}-\bar y\mathbf{1}_n$,
+                tem-se as seguintes quantidades:
+            """)
+
+            st.latex(r"""
+            \text{SQ}_{\mathrm{res}}=\|\hat{\boldsymbol{\varepsilon}}\|^2,
+            \qquad
+            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2.
+            """)
+
+
             
         
     # =============================================
