@@ -2799,14 +2799,14 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
         if st.toggle("🔴🔴🔴 O que é esta Regressão Múltipla? (clique para ver) 🔴🔴🔴", value=False, key="show_mr_help"):
             st.markdown(r"""
-                A **Regressão Linear Múltipla** modela a resposta observada $\mathbf{y} \in $ como uma função linear de vários preditores
+                A **Regressão Linear Múltipla** modela a resposta observada $\mathbf{y} \in \R^{n \times 1}$ como uma função linear de vários preditores
             (fatores) $\mathbf{x}_1,\mathbf{x}_2, \dots,\mathbf{x}_p \in \R^{n \times 1}$. De forma geral, o modelo pode ser escrito como
             """)
             st.latex(r" \mathbf{y} = \beta_0 \mathbf{x}_0 + \sum_{i=1}^{p}\beta_i \mathbf{x}_i + \boldsymbol{\varepsilon}")
             st.markdown(r"""
             onde 
 
-            - **$\mathbf{y}\in\mathbb{R}^n$** é o vetor de observações da resposta; 
+            - **$\mathbf{y}\in\mathbb{R}^{n \times 1}$** é o vetor de observações da resposta; 
             - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
             - $\mathbf{x}_i \in \R^{n \times 1}$ é o vetor de observações do fator $i \in \{0,1,\cdots, p\}$; 
             -  $\beta_i$ representa o coeficiente associado ao fator $i \in \{0,1,\cdots, p\}$;
@@ -2883,6 +2883,189 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             as quais podem ser organizadas em quatro grupos:
             qualidade do ajuste, erro preditivo, significância estatística
             e diagnóstico do modelo.
+            """)
+
+
+            # =========================
+            # Seções: Métricas usuais
+            # =========================
+            
+            st.markdown(r"## Avaliação do modelo de regressão")
+            
+            st.markdown(r"""
+            Nesta seção, conectamos as propriedades do estimador de MQO com as métricas usuais do modelo.
+            Usaremos a norma euclidiana $\|\cdot\|$ em $\mathbb{R}^{n \times 1}$, para a qual
+            $\|\mathbf{v}\|^2=\mathbf{v}^\top\mathbf{v}$.
+            """)
+            
+            # Definições básicas (úteis para todas as métricas)
+            st.markdown(r"### Definições básicas")
+            st.latex(r"""
+            \hat{\mathbf{y}}=\mathbf{X}\hat{\boldsymbol{\beta}}, \qquad
+            \hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}, \qquad \bar y=\frac{1}{n}\mathbf{1}_n^\top\mathbf{y} \qquad \textrm{e} \qquad 
+            \mathbf{y}_c=\mathbf{y}-\bar y\,\mathbf{1}_n.
+            """)
+    
+            
+            # -----------------------------------------
+            # 1. Qualidade do ajuste
+            # -----------------------------------------
+            st.markdown(r"### 1. Qualidade do ajuste")
+            
+            st.markdown(r"""
+            A qualidade do ajuste é avaliada via decomposição da variabilidade da resposta, definida por:
+            """)
+            
+            st.latex(r"""
+            \text{SQ}_{\mathrm{res}}=\|\hat{\boldsymbol{\varepsilon}}\|^2, \qquad
+            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2.
+            """)
+            
+            st.markdown(r"""
+            Uma quantidade complementar é a soma de quadrados explicada (regressão):
+            """)
+            
+            st.latex(r"""
+            \text{SQ}_{\mathrm{reg}}=\|\hat{\mathbf{y}}-\bar y\,\mathbf{1}_n\|^2.
+            """)
+            
+            st.markdown(r"""
+            Com essas definições, obtém-se a decomposição
+            $\text{SQ}_{\mathrm{tot}}=\text{SQ}_{\mathrm{reg}}+\text{SQ}_{\mathrm{res}}$,
+            e o coeficiente de determinação:
+            """)
+            
+            st.latex(r"""
+            R^2
+            =
+            1-\frac{\text{SQ}_{\mathrm{res}}}{\text{SQ}_{\mathrm{tot}}}
+            =
+            \frac{\text{SQ}_{\mathrm{reg}}}{\text{SQ}_{\mathrm{tot}}}.
+            """)
+            
+            st.markdown(r"""
+            Em modelos com múltiplos preditores, usa-se frequentemente o coeficiente ajustado:
+            """)
+            
+            st.latex(r"""
+            R^2_{\mathrm{aj}}
+            =
+            1-\frac{\text{SQ}_{\mathrm{res}}/(n-p-1)}{\text{SQ}_{\mathrm{tot}}/(n-1)}.
+            """)
+            
+            # -----------------------------------------
+            # 2. Erro preditivo
+            # -----------------------------------------
+            st.markdown(r"### 2. Erro preditivo")
+            
+            st.markdown(r"""
+            O erro preditivo é quantificado por medidas baseadas no vetor de resíduos
+            $\hat{\boldsymbol{\varepsilon}}$.
+            Uma estimativa natural da variância do erro é:
+            """)
+            
+            st.latex(r"""
+            \hat{\sigma}^2=\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}.
+            """)
+            
+            st.markdown(r"""
+            A partir dela, definem-se métricas na escala da resposta, como:
+            """)
+            
+            st.latex(r"""
+            \text{RMSE}=\sqrt{\hat{\sigma}^2}
+            =
+            \sqrt{\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}}.
+            """)
+            
+            st.markdown(r"""
+            Se desejar também uma medida robusta a outliers, pode-se usar o erro absoluto médio:
+            """)
+            
+            st.latex(r"""
+            \text{MAE}=\frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
+            \qquad
+            \|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|.
+            """)
+            
+            # -----------------------------------------
+            # 3. Significância estatística
+            # -----------------------------------------
+            st.markdown(r"### 3. Significância estatística")
+            
+            st.markdown(r"""
+            Sob \(\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n\) e
+            \(\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n\), vale:
+            """)
+            
+            st.latex(r"""
+            \mathbb{E}(\hat{\boldsymbol{\beta}})=\boldsymbol{\beta},
+            \qquad
+            \operatorname{Var}(\hat{\boldsymbol{\beta}})
+            =
+            \sigma^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            Na prática, substitui-se \(\sigma^2\) por \(\hat{\sigma}^2\), obtendo-se:
+            """)
+            
+            st.latex(r"""
+            \widehat{\operatorname{Var}}(\hat{\boldsymbol{\beta}})
+            =
+            \hat{\sigma}^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            Logo, o erro-padrão de \(\hat\beta_i\) é:
+            """)
+            
+            st.latex(r"""
+            \operatorname{EP}(\hat\beta_i)
+            =
+            \sqrt{\hat{\sigma}^2\left[(\mathbf{X}^\top\mathbf{X})^{-1}\right]_{ii}}.
+            """)
+            
+            st.markdown(r"""
+            Essas quantidades fundamentam os testes \(t\) (coeficientes individuais) e o teste \(F\) (significância global).
+            Em particular, o teste global pode ser expresso por:
+            """)
+            
+            st.latex(r"""
+            F
+            =
+            \frac{\text{SQ}_{\mathrm{reg}}/p}{\text{SQ}_{\mathrm{res}}/(n-p-1)}.
+            """)
+            
+            # -----------------------------------------
+            # 4. Diagnóstico do modelo
+            # -----------------------------------------
+            st.markdown(r"### 4. Diagnóstico do modelo")
+            
+            st.markdown(r"""
+            O diagnóstico do modelo é baseado (i) na análise de resíduos
+            \(\hat{\boldsymbol{\varepsilon}}\) e (ii) na geometria do ajuste induzida por \(\mathbf{X}\).
+            A matriz de projeção (matriz chapéu) é definida por:
+            """)
+            
+            st.latex(r"""
+            \mathbf{H}=\mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
+            \qquad
+            \hat{\mathbf{y}}=\mathbf{H}\mathbf{y}.
+            """)
+            
+            st.markdown(r"""
+            As quantidades \(h_{ii}\) (diagonal de \(\mathbf{H}\)) medem alavancagem (leverage),
+            e são usadas para identificar observações potencialmente influentes.
+            Além disso, problemas de multicolinearidade estão associados à estrutura de
+            \((\mathbf{X}^\top\mathbf{X})^{-1}\), o que motiva o uso de medidas como o VIF.
+            """)
+            
+            st.markdown(r"""
+            Em termos práticos, esta etapa envolve:
+            - gráficos de resíduos (para verificar homocedasticidade e adequação);
+            - QQ-plot (para avaliar a hipótese de normalidade, quando relevante);
+            - medidas de alavancagem e influência (por exemplo, baseadas em \(\mathbf{H}\)).
             """)
 
             st.markdown(r"""
