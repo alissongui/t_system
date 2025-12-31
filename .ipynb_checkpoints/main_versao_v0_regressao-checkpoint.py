@@ -2886,53 +2886,65 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             """)
 
 
-            # =========================
-            # Seções: Métricas usuais
-            # =========================
-            
             st.markdown(r"## Avaliação do modelo de regressão")
-            
+
             st.markdown(r"""
-            Nesta seção, conectamos as propriedades do estimador de MQO com as métricas usuais do modelo.
-            Usaremos a norma euclidiana $\|\cdot\|$ em $\mathbb{R}^{n \times 1}$, para a qual
+            Nesta seção, conectamos as propriedades do estimador de Mínimos Quadrados Ordinários (MQO)
+            com as métricas usuais utilizadas na avaliação de modelos de Regressão Linear Múltipla.
+            Utiliza-se a norma euclidiana $\|\cdot\|$ em $\mathbb{R}^n$, para a qual
             $\|\mathbf{v}\|^2=\mathbf{v}^\top\mathbf{v}$.
             """)
             
-            # Definições básicas (úteis para todas as métricas)
+            
+            # -------------------------------------------------
+            # Definições básicas
+            # -------------------------------------------------
             st.markdown(r"### Definições básicas")
+            
             st.latex(r"""
             \hat{\mathbf{y}}=\mathbf{X}\hat{\boldsymbol{\beta}}, \qquad
-            \hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}, \qquad \bar y=\frac{1}{n}\mathbf{1}_n^\top\mathbf{y} \qquad \textrm{e} \qquad 
+            \hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}},
+            """)
+            
+            st.latex(r"""
+            \bar y=\frac{1}{n}\mathbf{1}_n^\top\mathbf{y}, \qquad
             \mathbf{y}_c=\mathbf{y}-\bar y\,\mathbf{1}_n.
             """)
-    
             
-            # -----------------------------------------
+            st.latex(r"""
+            \mathbf{H}
+            =
+            \mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
+            \qquad
+            h_{ii}=(\mathbf{H})_{ii}.
+            """)
+            
+            st.markdown(r"""
+            A matriz $\mathbf{H}$ é denominada **matriz chapéu**.
+            Seus elementos diagonais $h_{ii}$ medem a alavancagem das observações
+            e são utilizados na definição de métricas preditivas baseadas em validação cruzada.
+            """)
+
+            
+            # -------------------------------------------------
             # 1. Qualidade do ajuste
-            # -----------------------------------------
+            # -------------------------------------------------
             st.markdown(r"### 1. Qualidade do ajuste")
             
             st.markdown(r"""
-            A qualidade do ajuste é avaliada via decomposição da variabilidade da resposta, definida por:
+            A qualidade do ajuste é avaliada por meio da decomposição da variabilidade da resposta.
+            Definem-se as seguintes somas de quadrados:
             """)
             
             st.latex(r"""
             \text{SQ}_{\mathrm{res}}=\|\hat{\boldsymbol{\varepsilon}}\|^2, \qquad
-            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2.
+            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2 \qquad \textrm{e} \qquad \text{SQ}_{\mathrm{reg}}=\|\hat{\mathbf{y}}-\bar y\,\mathbf{1}_n\|^2.
             """)
             
             st.markdown(r"""
-            Uma quantidade complementar é a soma de quadrados explicada (regressão):
-            """)
-            
-            st.latex(r"""
-            \text{SQ}_{\mathrm{reg}}=\|\hat{\mathbf{y}}-\bar y\,\mathbf{1}_n\|^2.
-            """)
-            
-            st.markdown(r"""
-            Com essas definições, obtém-se a decomposição
-            $\text{SQ}_{\mathrm{tot}}=\text{SQ}_{\mathrm{reg}}+\text{SQ}_{\mathrm{res}}$,
-            e o coeficiente de determinação:
+            Essas quantidades satisfazem a decomposição
+            $\text{SQ}_{\mathrm{tot}}=\text{SQ}_{\mathrm{reg}}+\text{SQ}_{\mathrm{res}}$.
+            O coeficiente de determinação é então definido por:
             """)
             
             st.latex(r"""
@@ -2944,7 +2956,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             """)
             
             st.markdown(r"""
-            Em modelos com múltiplos preditores, usa-se frequentemente o coeficiente ajustado:
+            Em modelos com múltiplos preditores, utiliza-se frequentemente o coeficiente de determinação ajustado:
             """)
             
             st.latex(r"""
@@ -2953,49 +2965,89 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             1-\frac{\text{SQ}_{\mathrm{res}}/(n-p-1)}{\text{SQ}_{\mathrm{tot}}/(n-1)}.
             """)
             
-            # -----------------------------------------
+            # -------------------------------------------------
             # 2. Erro preditivo
-            # -----------------------------------------
+            # -------------------------------------------------
             st.markdown(r"### 2. Erro preditivo")
             
             st.markdown(r"""
-            O erro preditivo é quantificado por medidas baseadas no vetor de resíduos
-            $\hat{\boldsymbol{\varepsilon}}$.
-            Uma estimativa natural da variância do erro é:
+            O erro preditivo do modelo é quantificado a partir do vetor de resíduos.
+            Uma estimativa não viesada da variância do erro é dada por:
             """)
             
             st.latex(r"""
-            \hat{\sigma}^2=\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}.
+            \hat{\sigma}^2
+            =
+            \frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}.
             """)
             
             st.markdown(r"""
-            A partir dela, definem-se métricas na escala da resposta, como:
+            O estimador $\hat{\sigma}=\sqrt{\hat{\sigma}^2}$ fornece uma medida da escala média do erro
+            e é frequentemente utilizado como **RMSE (Root Mean Squared Error)** do modelo:
             """)
             
             st.latex(r"""
-            \text{RMSE}=\sqrt{\hat{\sigma}^2}
+            \text{RMSE}
+            =
+            \hat{\sigma}
             =
             \sqrt{\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}}.
             """)
             
             st.markdown(r"""
-            Se desejar também uma medida robusta a outliers, pode-se usar o erro absoluto médio:
+            Como medida alternativa, mais robusta à presença de valores extremos,
+            pode-se utilizar o erro absoluto médio:
             """)
             
             st.latex(r"""
-            \text{MAE}=\frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
-            \qquad
+            \text{MAE}
+            =
+            \frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
+            \qquad \textrm{em que a norma} \|\mathbf{\cdot}\|_1 \textrm{é definida por: }
             \|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|.
             """)
-            
-            # -----------------------------------------
+
+            st.markdown(r"""
+            Além das métricas baseadas nos resíduos ajustados,
+            avaliam-se métricas de caráter preditivo,
+            baseadas na validação cruzada do tipo leave-one-out.
+            """)
+
+            st.latex(r"""
+            \text{PRESS}
+            =
+            \sum_{i=1}^n
+            \left(
+            \frac{\hat{\varepsilon}_i}{1-h_{ii}}
+            \right)^2
+            =
+            \left\|
+            \left(\mathbf{I}_n-\operatorname{diag}(\mathbf{H})\right)^{-1}
+            \hat{\boldsymbol{\varepsilon}}
+            \right\|^2.
+            """)
+
+
+            st.markdown(r"""
+            A estatística PRESS (Prediction Sum of Squares)
+            mede o erro de previsão do modelo em validação cruzada leave-one-out, em que 
+            valores menores indicam melhor capacidade preditiva. Por sua vez, O coeficiente de determinação preditivo $R^2_{\mathrm{pred}}$ quantifica a proporção da variabilidade da resposta explicada em termos de previsão fora da amostra.
+            """)
+
+            st.latex(r"""
+            R^2_{\mathrm{pred}}
+            =
+            1-\frac{\text{PRESS}}{\text{SQ}_{\mathrm{tot}}}.
+            """)
+
+            # -------------------------------------------------
             # 3. Significância estatística
-            # -----------------------------------------
+            # -------------------------------------------------
             st.markdown(r"### 3. Significância estatística")
             
             st.markdown(r"""
-            Sob \(\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n\) e
-            \(\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n\), vale:
+            Sob as hipóteses $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ e
+            $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$, o estimador de MQO satisfaz:
             """)
             
             st.latex(r"""
@@ -3007,7 +3059,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             """)
             
             st.markdown(r"""
-            Na prática, substitui-se \(\sigma^2\) por \(\hat{\sigma}^2\), obtendo-se:
+            Na prática, substitui-se $\sigma^2$ por $\hat{\sigma}^2$, obtendo-se a matriz de covariância estimada:
             """)
             
             st.latex(r"""
@@ -3017,7 +3069,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             """)
             
             st.markdown(r"""
-            Logo, o erro-padrão de \(\hat\beta_i\) é:
+            O erro-padrão associado ao coeficiente $\hat\beta_i$ é então:
             """)
             
             st.latex(r"""
@@ -3027,8 +3079,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             """)
             
             st.markdown(r"""
-            Essas quantidades fundamentam os testes \(t\) (coeficientes individuais) e o teste \(F\) (significância global).
-            Em particular, o teste global pode ser expresso por:
+            Essas quantidades fundamentam os testes de hipóteses do tipo \(t\) para coeficientes individuais
+            e o teste \(F\) para a significância global do modelo, definido por:
             """)
             
             st.latex(r"""
@@ -3036,59 +3088,101 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             =
             \frac{\text{SQ}_{\mathrm{reg}}/p}{\text{SQ}_{\mathrm{res}}/(n-p-1)}.
             """)
-            
-            # -----------------------------------------
+
+            # -------------------------------------------------
             # 4. Diagnóstico do modelo
-            # -----------------------------------------
+            # -------------------------------------------------
             st.markdown(r"### 4. Diagnóstico do modelo")
             
             st.markdown(r"""
-            O diagnóstico do modelo é baseado (i) na análise de resíduos
-            \(\hat{\boldsymbol{\varepsilon}}\) e (ii) na geometria do ajuste induzida por \(\mathbf{X}\).
-            A matriz de projeção (matriz chapéu) é definida por:
+            O diagnóstico do modelo baseia-se na análise dos resíduos e na estrutura geométrica do ajuste.
+            Define-se a matriz de projeção (matriz chapéu):
             """)
             
             st.latex(r"""
-            \mathbf{H}=\mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
+            \mathbf{H}
+            =
+            \mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
             \qquad
             \hat{\mathbf{y}}=\mathbf{H}\mathbf{y}.
             """)
             
             st.markdown(r"""
-            As quantidades \(h_{ii}\) (diagonal de \(\mathbf{H}\)) medem alavancagem (leverage),
-            e são usadas para identificar observações potencialmente influentes.
-            Além disso, problemas de multicolinearidade estão associados à estrutura de
-            \((\mathbf{X}^\top\mathbf{X})^{-1}\), o que motiva o uso de medidas como o VIF.
+            Os elementos diagonais $h_{ii}$ medem a alavancagem das observações,
+            sendo utilizados na identificação de pontos influentes.
+            Problemas de multicolinearidade estão associados à estrutura de
+            $(\mathbf{X}^\top\mathbf{X})^{-1}$, motivando o uso de medidas como o VIF (Fator de Inflação da Variância).
+            """)
+
+            st.markdown(r"""
+            O **Fator de Inflação da Variância (VIF)** quantifica o impacto da multicolinearidade
+            sobre a variância dos estimadores de mínimos quadrados.
+            Para o coeficiente associado ao preditor $\mathbf{x}_j$, o VIF é definido por
             """)
             
-            st.markdown(r"""
-            Em termos práticos, esta etapa envolve:
-            - gráficos de resíduos (para verificar homocedasticidade e adequação);
-            - QQ-plot (para avaliar a hipótese de normalidade, quando relevante);
-            - medidas de alavancagem e influência (por exemplo, baseadas em \(\mathbf{H}\)).
-            """)
-
-            st.markdown(r"""
-            ### 1. Qualidade do ajuste
-            """)
-            st.markdown(r"""
-                A qualidade do ajuste é avaliada a partir da decomposição da variabilidade da resposta.
-                Definindo o vetor de resíduos
-                $\hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}$
-                e o vetor centrado
-                $\mathbf{y}_c=\mathbf{y}-\bar y\mathbf{1}_n$,
-                tem-se as seguintes quantidades:
-            """)
-
             st.latex(r"""
-            \text{SQ}_{\mathrm{res}}=\|\hat{\boldsymbol{\varepsilon}}\|^2,
-            \qquad
-            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2.
+            \mathrm{VIF}_j
+            =
+            \frac{1}{1-R_j^2},
+            """)
+            
+            st.markdown(r"""
+            onde $R_j^2$ é o coeficiente de determinação obtido ao se regressar
+            o preditor $\mathbf{x}_j$ em função dos demais preditores do modelo.
+            """)
+            
+            st.markdown(r"""
+            Do ponto de vista matricial, o VIF está diretamente relacionado
+            aos elementos diagonais da matriz $(\mathbf{X}^\top\mathbf{X})^{-1}$,
+            que governam a variância dos estimadores $\hat{\boldsymbol{\beta}}$.
+            A interpretação do Fator de Inflação da Variância (VIF) é usualmente feita da seguinte forma:
+
+- $\mathrm{VIF}_j = 1$: ausência de multicolinearidade;
+- $1 < \mathrm{VIF}_j \lesssim 5$: colinearidade moderada;
+- $\mathrm{VIF}_j \gtrsim 10$: colinearidade severa.
+
+Valores elevados de VIF indicam instabilidade nos coeficientes estimados,
+com inflacionamento dos erros-padrão e redução da confiabilidade dos testes de significância.
+            """)
+
+            st.markdown(r"""
+            Além das métricas baseadas em resíduos, alavancagem e multicolinearidade,
+            podem-se utilizar **critérios de informação** para a comparação entre modelos.
+            Esses critérios equilibram a qualidade do ajuste com a complexidade do modelo,
+            penalizando a inclusão excessiva de parâmetros.
+            """)
+            
+            st.markdown(r"""
+            Os critérios mais utilizados são o **AIC (Akaike Information Criterion)** e o
+            **BIC (Bayesian Information Criterion)**, definidos, respectivamente, por:
+            """)
+            
+            st.latex(r"""
+            \mathrm{AIC}
+            =
+            n\ln\!\left(\frac{\text{SQ}_{\mathrm{res}}}{n}\right)
+            +2(p+1),
+            """)
+            
+            st.latex(r"""
+            \mathrm{BIC}
+            =
+            n\ln\!\left(\frac{\text{SQ}_{\mathrm{res}}}{n}\right)
+            +(p+1)\ln n.
+            """)
+            
+            st.markdown(r"""
+            Os critérios AIC e BIC penalizam a complexidade do modelo
+            e são utilizados principalmente para a **comparação entre modelos concorrentes**.
+            Em ambos os casos, **valores menores indicam modelos preferíveis**.
             """)
 
 
             
-        
+            
+
+
+    
     # =============================================
     # 🔖 Abas de resultados
     # =============================================
