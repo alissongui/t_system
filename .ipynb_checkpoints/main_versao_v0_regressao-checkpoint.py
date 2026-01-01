@@ -3177,9 +3177,148 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             Em ambos os casos, **valores menores indicam modelos preferíveis**.
             """)
 
+        # =========================
+        # Coeficientes da Regressão
+        # =========================
+        st.markdown("### Coeficientes da Regressão")
+        
+        # y (resposta): valores do problema (ex.: média por ensaio)
+        y = np.asarray(mean_y, dtype=float).reshape(-1, 1)
+        n = y.shape[0]
+        
+        # X: fatores (dummies para categóricos), com intercepto
+        X_raw = df_plan[factor_cols].copy()
+        X_num = X_raw.apply(pd.to_numeric, errors="ignore")
+        X_dum = pd.get_dummies(X_num, drop_first=True, dtype=float)
+        X_dum.insert(0, "Constante", 1.0)
+        
+        X = X_dum.to_numpy(dtype=float)
+        terms = list(X_dum.columns)
+        
+        p1 = X.shape[1]        # (p+1)
+        p = p1 - 1
+        df_res = n - p1
+        
+        # MQO
+        XtX = X.T @ X
+        XtX_inv = np.linalg.pinv(XtX)  # robusto
+        beta_hat = XtX_inv @ (X.T @ y)
+        beta = beta_hat.ravel()    
+        y_hat = X @ beta_hat
+        eps_hat = y - y_hat
+        
+        SQ_res = float((eps_hat.T @ eps_hat)[0, 0])
+        sigma2_hat = SQ_res / df_res if df_res > 0 else np.nan
+        
+        # Variância/EP dos coeficientes
+        Var_beta = sigma2_hat * XtX_inv
+        se = np.sqrt(np.maximum(np.diag(Var_beta), 0.0)).reshape(-1, 1)
+        
+        # Estatística t e p-valor (bicaudal)
+        t_vals = (beta_hat / se).ravel()
+        
+        # se você já tem t_dist do scipy.stats:
+        #   from scipy.stats import t as t_dist
+        p_vals = np.array([
+            2 * (1 - t_dist.cdf(abs(tv), df=df_res)) if (df_res > 0 and np.isfinite(tv)) else np.nan
+            for tv in t_vals
+        ], dtype=float)
+        
+        # IC 95%
+        alpha = 0.05
+        t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
+        ci_low = (beta_hat - t_crit * se).ravel()
+        ci_high = (beta_hat + t_crit * se).ravel()
+        
+        def fmt_ci(a, b, nd=1):
+            if not (np.isfinite(a) and np.isfinite(b)):
+                return ""
+            return f"({a:.{nd}f}; {b:.{nd}f})"
+        
+        # VIF (para cada preditor exceto intercepto)
+        vif = [""] * p1
+        if p >= 1:
+            for j in range(1, p1):  # pula intercepto
+                xj = X[:, [j]]
+                X_others = np.delete(X, j, axis=1)
+                # regressão auxiliar: xj ~ X_others
+                XtXo = X_others.T @ X_others
+                XtXo_inv = np.linalg.pinv(XtXo)
+                bj = XtXo_inv @ (X_others.T @ xj)
+                xj_hat = X_others @ bj
+        
+                num = float(((xj - xj_hat).T @ (xj - xj_hat))[0, 0])
+                den = float(((xj - np.mean(xj)).T @ (xj - np.mean(xj)))[0, 0])
+                R2j = 1 - (num/den) if den > 0 else 0.0
+        
+                vif_j = 1.0 / (1.0 - R2j) if (1.0 - R2j) > 1e-12 else np.inf
+                vif[j] = f"{vif_j:.2f}" if np.isfinite(vif_j) else "Inf"
+        
+        # Monta tabela final (mesmo cabeçalho do seu relatório)
+        df_coef = pd.DataFrame({
+            "Termo": terms,
+            "Coef": beta_hat.ravel(),
+            "EP de Coef": se.ravel(),
+            "IC de 95%": [fmt_ci(a, b, nd=1) for a, b in zip(ci_low, ci_high)],
+            "Valor-T": t_vals,
+            "Valor-P": p_vals,
+            "VIF": vif
+        })
+        
+        # Formatação numérica (sem perder tipo no dataframe)
+        df_show = df_coef.copy()
+        df_show["Coef"] = df_show["Coef"].map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        df_show["EP de Coef"] = df_show["EP de Coef"].map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        df_show["Valor-T"] = df_show["Valor-T"].map(lambda v: f"{v:.2f}" if np.isfinite(v) else "")
+        df_show["Valor-P"] = df_show["Valor-P"].map(lambda v: f"{v:.3f}" if np.isfinite(v) else "")
+        
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        st.caption(
+    "EP de Coef (Erro-Padrão do Coeficiente) mede a incerteza associada à estimativa "
+    "de cada coeficiente de regressão e é utilizado no cálculo do valor-t, do valor-p "
+    "e dos intervalos de confiança."
+)
 
-            
-            
+        st.markdown("### 🧾 Equação de regressão do modelo")
+        
+        # 1) versão LaTeX bonita:
+        # y_hat = beta0 + beta1*x1 + ... + betap*xp
+        terms_latex = []
+        for i, name in enumerate(["Constante"] + factor_cols):
+            b = float(beta_hat[i, 0])
+            if i == 0:
+                terms_latex.append(f"{b:.4f}")
+            else:
+                sign = "+" if b >= 0 else "-"
+                coef_abs = abs(b)
+                # nome do regressor em LaTeX (escape simples)
+                var = name.replace("_", r"\_")
+                terms_latex.append(f"{sign}\; {coef_abs:.4f}\,{var}")
+        
+        eq_latex = r"\hat{y} = " + " ".join(terms_latex)
+        st.markdown(
+            """
+            <style>
+            .eq-box {
+                border: 2px solid #4A6CF7;
+                border-radius: 8px;
+                padding: 16px;
+                background-color: #F6F8FF;
+                margin-top: 10px;
+                margin-bottom: 10px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        st.markdown('<div class="eq-box">', unsafe_allow_html=True)
+        st.latex(eq_latex)   # sua equação já montada
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.caption(f"Modelo ajustado para {var_label}, com termos lineares nos fatores codificados."
+                                    )
+
 
 
     
