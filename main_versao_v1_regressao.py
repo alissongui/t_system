@@ -219,6 +219,17 @@ def oa_from_name(name: str) -> np.ndarray:
     # se nada casou:
     raise RuntimeError(f"OA '{name}' não disponível.")
 
+def to_latex_var(name: str) -> str:
+    """
+    Converte nomes do tipo R_M em R_{M} para uso em LaTeX.
+    Casos com múltiplos '_' viram subscrito agrupado.
+    """
+    if "_" in name:
+        base, *subs = name.split("_")
+        sub = "_".join(subs)
+        return rf"{base}_{{{sub}}}"
+    return name
+
 
 
 def full_factorial_runs(levels_by_factor: list[int]) -> int:
@@ -950,31 +961,34 @@ def render_ensaio_confirmacao(
     nominal_target,
 ):
     """UI + cálculo do Ensaio de Confirmação (upload de matriz de réplicas)."""
-    st.subheader("🧪 Ensaio de confirmação")
+    st.subheader("🧪 Ensaios de confirmação")
 
     st.caption(
         "Use esta seção para comparar os resultados de um ensaio de confirmação "
         "com os valores preditos pelo modelo aditivo de efeitos principais."
     )
 
+    st.markdown("---")    
     st.markdown("**1️⃣ Escolha o ponto de análise do ensaio de confirmação**")
 
-    if "modo_conf_prev" not in st.session_state:
-        st.session_state["modo_conf_prev"] = "Ponto ótimo (recomendado)"
+    if "modo_conf_prev_conf" not in st.session_state:
+        st.session_state["modo_conf_prev_conf"] = "Ponto ótimo (recomendado)"
+
 
     modo_conf = st.radio(
         "Selecione a combinação de níveis a ser utilizada:",
         ("Ponto ótimo (recomendado)", "Outra combinação de níveis"),
         index=0,
-        key="modo_conf",
+        key="modo_conf_conf",
     )
 
+
     # ao mudar o modo, limpa estados do ensaio
-    if st.session_state["modo_conf_prev"] != modo_conf:
+    if st.session_state["modo_conf_prev_conf"] != modo_conf:
         for k in list(st.session_state.keys()):
             if k.startswith("conf_") or k.startswith("y_conf_") or k.startswith("sn_conf_") or k == "conf_upl":
                 st.session_state.pop(k, None)
-        st.session_state["modo_conf_prev"] = modo_conf
+        st.session_state["modo_conf_prev_conf"] = modo_conf
 
     conf_levels = {}
 
@@ -999,6 +1013,7 @@ def render_ensaio_confirmacao(
             )
 
     # ----------------- Passo 2 -----------------
+    st.markdown("---")
     st.markdown("**2️⃣ Carregue os resultados do ensaio de confirmação**")
 
     st.markdown(
@@ -1044,6 +1059,7 @@ def render_ensaio_confirmacao(
             y_conf_vals = np.array([], dtype=float)
 
     # ----------------- Passo 3 -----------------
+    st.markdown("---")
     st.markdown("**3️⃣ Comparação entre médias observadas e valores preditos**")
 
     if y_conf_vals.size == 0:
@@ -2565,24 +2581,13 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         # ================================================================
         nominal_target = alvo_nominal if sn_tipo == "Nominal é melhor" else None
 
-        render_ensaio_confirmacao(
-            factor_cols=factor_cols,
-            df_plan=df_plan,
-            var_label=var_label,
-            mean_y=mean_y,
-            df_effects=df_effects,
-            sn_col=sn_col,
-            per_factor_tables=per_factor_tables,
-            sn_tipo=sn_tipo,
-            nominal_target=nominal_target,
-        )
 
     def anova_taguchi():
         """
         Aba ANOVA – Análise de Variância do Planejamento Experimental (Taguchi).
         Implementação será feita posteriormente.
         """
-        st.subheader("📊 ANOVA sobre a razão S/N (opcional)")
+        st.subheader("📊 ANOVA sobre a razão S/N")
 
         st.caption(
             "Esta ANOVA é baseada na razão S/N por ensaio, usando apenas efeitos principais. "
@@ -2795,20 +2800,523 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
     
     def regressao_multipla():
-        st.subheader("📉 Regressão múltipla (opcional)")
-        ativar = st.checkbox("Ativar regressão múltipla", value=False)
-        if not ativar:
-            return
-
-        bloco_regressao_multipla(
-            df_plan=df_plan,
-            df_design_cod=df_cod,
-            mean_y=mean_y,
-            df_effects=df_join,
-            sn_col="_SN",
-            var_label=var_label
+        st.subheader("📉 Regressão múltipla")
+ 
+        st.caption(
+            "Esta Regressão Múltipla é ajustada diretamente aos **dados do problema** (valores observados da resposta), "
+            "e **não** à razão S/N. O objetivo é modelar a variável resposta como uma combinação linear dos fatores "
+            "(e, opcionalmente, de interações), permitindo estimar efeitos, prever valores e avaliar significância."
         )
 
+        if st.toggle("🔴🔴🔴 O que é esta Regressão Múltipla? (clique para ver) 🔴🔴🔴", value=False, key="show_mr_help"):
+            st.markdown(r"""
+                A **Regressão Linear Múltipla** modela a resposta observada $\mathbf{y} \in \R^{n \times 1}$ como uma função linear de vários preditores
+            (fatores) $\mathbf{x}_1,\mathbf{x}_2, \dots,\mathbf{x}_p \in \R^{n \times 1}$. De forma geral, o modelo pode ser escrito como
+            """)
+            st.latex(r" \mathbf{y} = \beta_0 \mathbf{x}_0 + \sum_{i=1}^{p}\beta_i \mathbf{x}_i + \boldsymbol{\varepsilon}")
+            st.markdown(r"""
+            onde 
+
+            - **$\mathbf{y}\in\mathbb{R}^{n \times 1}$** é o vetor de observações da resposta; 
+            - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
+            - $\mathbf{x}_i \in \R^{n \times 1}$ é o vetor de observações do fator $i \in \{0,1,\cdots, p\}$; 
+            -  $\beta_i$ representa o coeficiente associado ao fator $i \in \{0,1,\cdots, p\}$;
+            - $\boldsymbol{\varepsilon}  \in \R^{n \times 1}$ é denominado de vetor de erros, o qual representa a parte da resposta não explicada pelo modelo e assumida de natureza aleatória. Em geral, assume-se que: $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ (média nula) e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$ (matriz de covariância do vetor de erros é proporcional à matriz identidade de ordem $n$). 
+            """)
+            st.markdown(r"""
+            O problema de Regressão Linear Múltipla consiste em estimar o vetor de coeficientes
+            $\boldsymbol{\beta}=(\beta_0,\beta_1,\ldots,\beta_p)^\top \in \mathbb{R}^{p+1}$
+            a partir dos dados observados, de modo a obter a melhor aproximação linear da resposta.
+            
+            Para isso, adota-se o critério dos **Mínimos Quadrados Ordinários (MQO)**,
+            que consiste em minimizar a soma dos quadrados dos resíduos, isto é,
+            resolver o problema de otimização
+            """)
+            
+            st.latex(r"""
+            \min_{\boldsymbol{\beta}\in\mathbb{R}^{p+1}}
+            \; \|\mathbf{y}-\mathbf{X}\boldsymbol{\beta}\|^2,
+            """)
+            
+            st.markdown(r"""
+            em que $\mathbf{X}=[\,\mathbf{x}_0\ \mathbf{x}_1\ \cdots\ \mathbf{x}_p\,]\in\mathbb{R}^{n\times(p+1)}$
+            é a matriz de projeto do modelo.
+            
+            Sob a hipótese de posto completo da matriz $\mathbf{X}$,
+            a solução do problema é única e é dada por
+            """)
+            
+            st.latex(r"""
+            \hat{\boldsymbol{\beta}}
+            =
+            (\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top\mathbf{y}.
+            """)
+            
+            st.markdown(r"""
+            O vetor $\hat{\boldsymbol{\beta}}$ é denominado **estimador de mínimos quadrados**
+            e fornece a equação estimada do modelo,
+            $\hat{\mathbf{y}}=\mathbf{X}\hat{\boldsymbol{\beta}}$,
+            bem como o vetor de resíduos
+            $\hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}}$.
+            
+            Geometricamente, o vetor $\hat{\mathbf{y}}$ corresponde à projeção ortogonal
+            de $\mathbf{y}$ sobre o espaço coluna de $\mathbf{X}$,
+            enquanto o vetor de resíduos é ortogonal a esse espaço.
+            """)
+
+            st.markdown(r"""
+            Sob as hipóteses usuais do modelo de regressão linear,
+            em particular $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$
+            e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$,
+            o estimador de mínimos quadrados apresenta propriedades estatísticas fundamentais.
+            Em particular, tem-se que:
+            """)
+            
+            st.latex(r"""
+            \mathbb{E}(\hat{\boldsymbol{\beta}})=\boldsymbol{\beta},
+            \qquad
+            \operatorname{Var}(\hat{\boldsymbol{\beta}})
+            =
+            \sigma^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            A primeira igualdade indica que $\hat{\boldsymbol{\beta}}$ é um **estimador não viesado**
+            do vetor de coeficientes $\boldsymbol{\beta}$.
+            A segunda expressa a **matriz de covariância do estimador**,
+            mostrando que a precisão das estimativas depende da variância do erro
+            e da estrutura da matriz de projeto $\mathbf{X}$.
+            """)
+            
+            st.markdown(r"""
+            Os resultados anteriores permitem definir e interpretar as principais
+            **métricas de avaliação** do modelo de Regressão Linear Múltipla,
+            as quais podem ser organizadas em quatro grupos:
+            qualidade do ajuste, erro preditivo, significância estatística
+            e diagnóstico do modelo.
+            """)
+
+
+            st.markdown(r"## Avaliação do modelo de regressão")
+
+            st.markdown(r"""
+            Nesta seção, conectamos as propriedades do estimador de Mínimos Quadrados Ordinários (MQO)
+            com as métricas usuais utilizadas na avaliação de modelos de Regressão Linear Múltipla.
+            Utiliza-se a norma euclidiana $\|\cdot\|$ em $\mathbb{R}^n$, para a qual
+            $\|\mathbf{v}\|^2=\mathbf{v}^\top\mathbf{v}$.
+            """)
+            
+            
+            # -------------------------------------------------
+            # Definições básicas
+            # -------------------------------------------------
+            st.markdown(r"### Definições básicas")
+            
+            st.latex(r"""
+            \hat{\mathbf{y}}=\mathbf{X}\hat{\boldsymbol{\beta}}, \qquad
+            \hat{\boldsymbol{\varepsilon}}=\mathbf{y}-\hat{\mathbf{y}},
+            """)
+            
+            st.latex(r"""
+            \bar y=\frac{1}{n}\mathbf{1}_n^\top\mathbf{y}, \qquad
+            \mathbf{y}_c=\mathbf{y}-\bar y\,\mathbf{1}_n.
+            """)
+            
+            st.latex(r"""
+            \mathbf{H}
+            =
+            \mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
+            \qquad
+            h_{ii}=(\mathbf{H})_{ii}.
+            """)
+            
+            st.markdown(r"""
+            A matriz $\mathbf{H}$ é denominada **matriz chapéu**.
+            Seus elementos diagonais $h_{ii}$ medem a alavancagem das observações
+            e são utilizados na definição de métricas preditivas baseadas em validação cruzada.
+            """)
+
+            
+            # -------------------------------------------------
+            # 1. Qualidade do ajuste
+            # -------------------------------------------------
+            st.markdown(r"### 1. Qualidade do ajuste")
+            
+            st.markdown(r"""
+            A qualidade do ajuste é avaliada por meio da decomposição da variabilidade da resposta.
+            Definem-se as seguintes somas de quadrados:
+            """)
+            
+            st.latex(r"""
+            \text{SQ}_{\mathrm{res}}=\|\hat{\boldsymbol{\varepsilon}}\|^2, \qquad
+            \text{SQ}_{\mathrm{tot}}=\|\mathbf{y}_c\|^2 \qquad \textrm{e} \qquad \text{SQ}_{\mathrm{reg}}=\|\hat{\mathbf{y}}-\bar y\,\mathbf{1}_n\|^2.
+            """)
+            
+            st.markdown(r"""
+            Essas quantidades satisfazem a decomposição
+            $\text{SQ}_{\mathrm{tot}}=\text{SQ}_{\mathrm{reg}}+\text{SQ}_{\mathrm{res}}$.
+            O coeficiente de determinação é então definido por:
+            """)
+            
+            st.latex(r"""
+            R^2
+            =
+            1-\frac{\text{SQ}_{\mathrm{res}}}{\text{SQ}_{\mathrm{tot}}}
+            =
+            \frac{\text{SQ}_{\mathrm{reg}}}{\text{SQ}_{\mathrm{tot}}}.
+            """)
+            
+            st.markdown(r"""
+            Em modelos com múltiplos preditores, utiliza-se frequentemente o coeficiente de determinação ajustado:
+            """)
+            
+            st.latex(r"""
+            R^2_{\mathrm{aj}}
+            =
+            1-\frac{\text{SQ}_{\mathrm{res}}/(n-p-1)}{\text{SQ}_{\mathrm{tot}}/(n-1)}.
+            """)
+            
+            # -------------------------------------------------
+            # 2. Erro preditivo
+            # -------------------------------------------------
+            st.markdown(r"### 2. Erro preditivo")
+            
+            st.markdown(r"""
+            O erro preditivo do modelo é quantificado a partir do vetor de resíduos.
+            Uma estimativa não viesada da variância do erro é dada por:
+            """)
+            
+            st.latex(r"""
+            \hat{\sigma}^2
+            =
+            \frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}.
+            """)
+            
+            st.markdown(r"""
+            O estimador $\hat{\sigma}=\sqrt{\hat{\sigma}^2}$ fornece uma medida da escala média do erro
+            e é frequentemente utilizado como **RMSE (Root Mean Squared Error)** do modelo:
+            """)
+            
+            st.latex(r"""
+            \text{RMSE}
+            =
+            \hat{\sigma}
+            =
+            \sqrt{\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}}.
+            """)
+            
+            st.markdown(r"""
+            Como medida alternativa, mais robusta à presença de valores extremos,
+            pode-se utilizar o erro absoluto médio:
+            """)
+            
+            st.latex(r"""
+            \text{MAE}
+            =
+            \frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
+            \qquad \textrm{em que a norma} \|\mathbf{\cdot}\|_1 \textrm{é definida por: }
+            \|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|.
+            """)
+
+            st.markdown(r"""
+            Além das métricas baseadas nos resíduos ajustados,
+            avaliam-se métricas de caráter preditivo,
+            baseadas na validação cruzada do tipo leave-one-out.
+            """)
+
+            st.latex(r"""
+            \text{PRESS}
+            =
+            \sum_{i=1}^n
+            \left(
+            \frac{\hat{\varepsilon}_i}{1-h_{ii}}
+            \right)^2
+            =
+            \left\|
+            \left(\mathbf{I}_n-\operatorname{diag}(\mathbf{H})\right)^{-1}
+            \hat{\boldsymbol{\varepsilon}}
+            \right\|^2.
+            """)
+
+
+            st.markdown(r"""
+            A estatística PRESS (Prediction Sum of Squares)
+            mede o erro de previsão do modelo em validação cruzada leave-one-out, em que 
+            valores menores indicam melhor capacidade preditiva. Por sua vez, O coeficiente de determinação preditivo $R^2_{\mathrm{pred}}$ quantifica a proporção da variabilidade da resposta explicada em termos de previsão fora da amostra.
+            """)
+
+            st.latex(r"""
+            R^2_{\mathrm{pred}}
+            =
+            1-\frac{\text{PRESS}}{\text{SQ}_{\mathrm{tot}}}.
+            """)
+
+            # -------------------------------------------------
+            # 3. Significância estatística
+            # -------------------------------------------------
+            st.markdown(r"### 3. Significância estatística")
+            
+            st.markdown(r"""
+            Sob as hipóteses $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ e
+            $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$, o estimador de MQO satisfaz:
+            """)
+            
+            st.latex(r"""
+            \mathbb{E}(\hat{\boldsymbol{\beta}})=\boldsymbol{\beta},
+            \qquad
+            \operatorname{Var}(\hat{\boldsymbol{\beta}})
+            =
+            \sigma^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            Na prática, substitui-se $\sigma^2$ por $\hat{\sigma}^2$, obtendo-se a matriz de covariância estimada:
+            """)
+            
+            st.latex(r"""
+            \widehat{\operatorname{Var}}(\hat{\boldsymbol{\beta}})
+            =
+            \hat{\sigma}^2(\mathbf{X}^\top\mathbf{X})^{-1}.
+            """)
+            
+            st.markdown(r"""
+            O erro-padrão associado ao coeficiente $\hat\beta_i$ é então:
+            """)
+            
+            st.latex(r"""
+            \operatorname{EP}(\hat\beta_i)
+            =
+            \sqrt{\hat{\sigma}^2\left[(\mathbf{X}^\top\mathbf{X})^{-1}\right]_{ii}}.
+            """)
+            
+            st.markdown(r"""
+            Essas quantidades fundamentam os testes de hipóteses do tipo \(t\) para coeficientes individuais
+            e o teste \(F\) para a significância global do modelo, definido por:
+            """)
+            
+            st.latex(r"""
+            F
+            =
+            \frac{\text{SQ}_{\mathrm{reg}}/p}{\text{SQ}_{\mathrm{res}}/(n-p-1)}.
+            """)
+
+            # -------------------------------------------------
+            # 4. Diagnóstico do modelo
+            # -------------------------------------------------
+            st.markdown(r"### 4. Diagnóstico do modelo")
+            
+            st.markdown(r"""
+            O diagnóstico do modelo baseia-se na análise dos resíduos e na estrutura geométrica do ajuste.
+            Define-se a matriz de projeção (matriz chapéu):
+            """)
+            
+            st.latex(r"""
+            \mathbf{H}
+            =
+            \mathbf{X}(\mathbf{X}^\top\mathbf{X})^{-1}\mathbf{X}^\top,
+            \qquad
+            \hat{\mathbf{y}}=\mathbf{H}\mathbf{y}.
+            """)
+            
+            st.markdown(r"""
+            Os elementos diagonais $h_{ii}$ medem a alavancagem das observações,
+            sendo utilizados na identificação de pontos influentes.
+            Problemas de multicolinearidade estão associados à estrutura de
+            $(\mathbf{X}^\top\mathbf{X})^{-1}$, motivando o uso de medidas como o VIF (Fator de Inflação da Variância).
+            """)
+
+            st.markdown(r"""
+            O **Fator de Inflação da Variância (VIF)** quantifica o impacto da multicolinearidade
+            sobre a variância dos estimadores de mínimos quadrados.
+            Para o coeficiente associado ao preditor $\mathbf{x}_j$, o VIF é definido por
+            """)
+            
+            st.latex(r"""
+            \mathrm{VIF}_j
+            =
+            \frac{1}{1-R_j^2},
+            """)
+            
+            st.markdown(r"""
+            onde $R_j^2$ é o coeficiente de determinação obtido ao se regressar
+            o preditor $\mathbf{x}_j$ em função dos demais preditores do modelo.
+            """)
+            
+            st.markdown(r"""
+            Do ponto de vista matricial, o VIF está diretamente relacionado
+            aos elementos diagonais da matriz $(\mathbf{X}^\top\mathbf{X})^{-1}$,
+            que governam a variância dos estimadores $\hat{\boldsymbol{\beta}}$.
+            A interpretação do Fator de Inflação da Variância (VIF) é usualmente feita da seguinte forma:
+
+- $\mathrm{VIF}_j = 1$: ausência de multicolinearidade;
+- $1 < \mathrm{VIF}_j \lesssim 5$: colinearidade moderada;
+- $\mathrm{VIF}_j \gtrsim 10$: colinearidade severa.
+
+Valores elevados de VIF indicam instabilidade nos coeficientes estimados,
+com inflacionamento dos erros-padrão e redução da confiabilidade dos testes de significância.
+            """)
+
+            st.markdown(r"""
+            Além das métricas baseadas em resíduos, alavancagem e multicolinearidade,
+            podem-se utilizar **critérios de informação** para a comparação entre modelos.
+            Esses critérios equilibram a qualidade do ajuste com a complexidade do modelo,
+            penalizando a inclusão excessiva de parâmetros.
+            """)
+            
+            st.markdown(r"""
+            Os critérios mais utilizados são o **AIC (Akaike Information Criterion)** e o
+            **BIC (Bayesian Information Criterion)**, definidos, respectivamente, por:
+            """)
+            
+            st.latex(r"""
+            \mathrm{AIC}
+            =
+            n\ln\!\left(\frac{\text{SQ}_{\mathrm{res}}}{n}\right)
+            +2(p+1),
+            """)
+            
+            st.latex(r"""
+            \mathrm{BIC}
+            =
+            n\ln\!\left(\frac{\text{SQ}_{\mathrm{res}}}{n}\right)
+            +(p+1)\ln n.
+            """)
+            
+            st.markdown(r"""
+            Os critérios AIC e BIC penalizam a complexidade do modelo
+            e são utilizados principalmente para a **comparação entre modelos concorrentes**.
+            Em ambos os casos, **valores menores indicam modelos preferíveis**.
+            """)
+        st.markdown("---")
+
+        # =========================
+        # Coeficientes da Regressão
+        # =========================
+        st.markdown("### Coeficientes da Regressão")
+        
+        # y (resposta): valores do problema (ex.: média por ensaio)
+        y = np.asarray(mean_y, dtype=float).reshape(-1, 1)
+        n = y.shape[0]
+        
+        # X: fatores (dummies para categóricos), com intercepto
+        X_raw = df_plan[factor_cols].copy()
+        X_num = X_raw.apply(pd.to_numeric, errors="ignore")
+        X_dum = pd.get_dummies(X_num, drop_first=True, dtype=float)
+        X_dum.insert(0, "Constante", 1.0)
+        
+        X = X_dum.to_numpy(dtype=float)
+        terms = list(X_dum.columns)
+        
+        p1 = X.shape[1]        # (p+1)
+        p = p1 - 1
+        df_res = n - p1
+        
+        # MQO
+        XtX = X.T @ X
+        XtX_inv = np.linalg.pinv(XtX)  # robusto
+        beta_hat = XtX_inv @ (X.T @ y)
+        beta = beta_hat.ravel()    
+        y_hat = X @ beta_hat
+        eps_hat = y - y_hat
+        
+        SQ_res = float((eps_hat.T @ eps_hat)[0, 0])
+        sigma2_hat = SQ_res / df_res if df_res > 0 else np.nan
+        
+        # Variância/EP dos coeficientes
+        Var_beta = sigma2_hat * XtX_inv
+        se = np.sqrt(np.maximum(np.diag(Var_beta), 0.0)).reshape(-1, 1)
+        
+        # Estatística t e p-valor (bicaudal)
+        t_vals = (beta_hat / se).ravel()
+        
+        # se você já tem t_dist do scipy.stats:
+        #   from scipy.stats import t as t_dist
+        p_vals = np.array([
+            2 * (1 - t_dist.cdf(abs(tv), df=df_res)) if (df_res > 0 and np.isfinite(tv)) else np.nan
+            for tv in t_vals
+        ], dtype=float)
+        
+        # IC 95%
+        alpha = 0.05
+        t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
+        ci_low = (beta_hat - t_crit * se).ravel()
+        ci_high = (beta_hat + t_crit * se).ravel()
+        
+        def fmt_ci(a, b, nd=1):
+            if not (np.isfinite(a) and np.isfinite(b)):
+                return ""
+            return f"({a:.{nd}f}; {b:.{nd}f})"
+        
+        # VIF (para cada preditor exceto intercepto)
+        vif = [""] * p1
+        if p >= 1:
+            for j in range(1, p1):  # pula intercepto
+                xj = X[:, [j]]
+                X_others = np.delete(X, j, axis=1)
+                # regressão auxiliar: xj ~ X_others
+                XtXo = X_others.T @ X_others
+                XtXo_inv = np.linalg.pinv(XtXo)
+                bj = XtXo_inv @ (X_others.T @ xj)
+                xj_hat = X_others @ bj
+        
+                num = float(((xj - xj_hat).T @ (xj - xj_hat))[0, 0])
+                den = float(((xj - np.mean(xj)).T @ (xj - np.mean(xj)))[0, 0])
+                R2j = 1 - (num/den) if den > 0 else 0.0
+        
+                vif_j = 1.0 / (1.0 - R2j) if (1.0 - R2j) > 1e-12 else np.inf
+                vif[j] = f"{vif_j:.2f}" if np.isfinite(vif_j) else "Inf"
+        
+        # Monta tabela final (mesmo cabeçalho do seu relatório)
+        df_coef = pd.DataFrame({
+            "Termo": terms,
+            "Coef": beta_hat.ravel(),
+            "EP de Coef": se.ravel(),
+            "IC de 95%": [fmt_ci(a, b, nd=1) for a, b in zip(ci_low, ci_high)],
+            "Valor-T": t_vals,
+            "Valor-P": p_vals,
+            "VIF": vif
+        })
+        
+        # Formatação numérica (sem perder tipo no dataframe)
+        df_show = df_coef.copy()
+        df_show["Coef"] = df_show["Coef"].map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        df_show["EP de Coef"] = df_show["EP de Coef"].map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        df_show["Valor-T"] = df_show["Valor-T"].map(lambda v: f"{v:.2f}" if np.isfinite(v) else "")
+        df_show["Valor-P"] = df_show["Valor-P"].map(lambda v: f"{v:.3f}" if np.isfinite(v) else "")
+        
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        st.caption(
+    "EP de Coef (Erro-Padrão do Coeficiente) mede a incerteza associada à estimativa "
+    "de cada coeficiente de regressão e é utilizado no cálculo do valor-t, do valor-p "
+    "e dos intervalos de confiança."
+)
+
+        st.markdown("---")
+
+        st.markdown("### 🧾 Equação de regressão do modelo")
+
+        # 1) versão LaTeX bonita:
+        # y_hat = beta0 + beta1*x1 + ... + betap*xp
+        terms_latex = []
+        for i, name in enumerate(["Constante"] + factor_cols):
+            b = float(beta[i])
+            if i == 0:
+                terms_latex.append(f"{b:.4f}")
+            else:
+                sign = "+" if b >= 0 else "-"
+                coef_abs = abs(b)
+                # nome do regressor em LaTeX (escape simples)
+                var = to_latex_var(name)
+                terms_latex.append(f"{sign}\; {coef_abs:.4f}\,{var}")
+        
+        eq_latex = r"\hat{y} = " + " ".join(terms_latex)
+        st.latex(eq_latex)
+        
+        st.caption(f"Modelo ajustado para {var_label}, com termos lineares nos fatores codificados.")
+
+        st.markdown("---")
+
+    
     # =============================================
     # 🔖 Abas de resultados
     # =============================================
@@ -2841,11 +3349,12 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
 
-    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_anova, tab_reg = st.tabs(
+    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_conf, tab_anova, tab_reg = st.tabs(
         ["Efeitos e Delta", 
          "Interações (2D)", 
          "Interações (3D)", 
          "Predições",
+         "Ensaios de confirmação", 
          "ANOVA", 
          "Regressão múltipla"]
     )
@@ -2868,6 +3377,19 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     with tab_pred:
         tabelas_observado_predito()
         predicao_usuario()
+
+    with tab_conf:
+        render_ensaio_confirmacao(
+        factor_cols=factor_cols,
+        df_plan=df_plan,
+        var_label=var_label,
+        mean_y=mean_y,
+        df_effects=df_join,   # aqui é o df com _SN por ensaio
+        sn_col="_SN",
+        per_factor_tables=per_factor,
+        sn_tipo=sn_tipo,
+        nominal_target=None,
+    )
 
     with tab_anova:
         anova_taguchi()

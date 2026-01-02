@@ -219,6 +219,17 @@ def oa_from_name(name: str) -> np.ndarray:
     # se nada casou:
     raise RuntimeError(f"OA '{name}' não disponível.")
 
+def to_latex_var(name: str) -> str:
+    """
+    Converte nomes do tipo R_M em R_{M} para uso em LaTeX.
+    Casos com múltiplos '_' viram subscrito agrupado.
+    """
+    if "_" in name:
+        base, *subs = name.split("_")
+        sub = "_".join(subs)
+        return rf"{base}_{{{sub}}}"
+    return name
+
 
 
 def full_factorial_runs(levels_by_factor: list[int]) -> int:
@@ -3176,6 +3187,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             e são utilizados principalmente para a **comparação entre modelos concorrentes**.
             Em ambos os casos, **valores menores indicam modelos preferíveis**.
             """)
+        st.markdown("---")
 
         # =========================
         # Coeficientes da Regressão
@@ -3279,47 +3291,30 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     "e dos intervalos de confiança."
 )
 
+        st.markdown("---")
+
         st.markdown("### 🧾 Equação de regressão do modelo")
-        
+
         # 1) versão LaTeX bonita:
         # y_hat = beta0 + beta1*x1 + ... + betap*xp
         terms_latex = []
         for i, name in enumerate(["Constante"] + factor_cols):
-            b = float(beta_hat[i, 0])
+            b = float(beta[i])
             if i == 0:
                 terms_latex.append(f"{b:.4f}")
             else:
                 sign = "+" if b >= 0 else "-"
                 coef_abs = abs(b)
                 # nome do regressor em LaTeX (escape simples)
-                var = name.replace("_", r"\_")
+                var = to_latex_var(name)
                 terms_latex.append(f"{sign}\; {coef_abs:.4f}\,{var}")
         
         eq_latex = r"\hat{y} = " + " ".join(terms_latex)
-        st.markdown(
-            """
-            <style>
-            .eq-box {
-                border: 2px solid #4A6CF7;
-                border-radius: 8px;
-                padding: 16px;
-                background-color: #F6F8FF;
-                margin-top: 10px;
-                margin-bottom: 10px;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
+        st.latex(eq_latex)
         
-        st.markdown('<div class="eq-box">', unsafe_allow_html=True)
-        st.latex(eq_latex)   # sua equação já montada
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.caption(f"Modelo ajustado para {var_label}, com termos lineares nos fatores codificados."
-                                    )
+        st.caption(f"Modelo ajustado para {var_label}, com termos lineares nos fatores codificados.")
 
-
+        st.markdown("---")
 
     
     # =============================================
