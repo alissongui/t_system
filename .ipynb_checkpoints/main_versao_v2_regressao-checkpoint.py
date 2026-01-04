@@ -2818,7 +2818,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             onde 
 
             - **$\mathbf{y}\in\mathbb{R}^{n \times 1}$** é o vetor de observações da resposta; 
-            - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
+            - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T = \mathbf{1}_n \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
             - $\mathbf{x}_i \in \R^{n \times 1}$ é o vetor de observações do fator $i \in \{0,1,\cdots, p\}$; 
             -  $\beta_i$ representa o coeficiente associado ao fator $i \in \{0,1,\cdots, p\}$;
             - $\boldsymbol{\varepsilon}  \in \R^{n \times 1}$ é denominado de vetor de erros, o qual representa a parte da resposta não explicada pelo modelo e assumida de natureza aleatória. Em geral, assume-se que: $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ (média nula) e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$ (matriz de covariância do vetor de erros é proporcional à matriz identidade de ordem $n$). 
@@ -3004,6 +3004,13 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             =
             \sqrt{\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}}.
             """)
+
+            st.markdown(r"""
+            No **Sumário do Modelo**, essa quantidade é usualmente denotada por **$S$**
+            e corresponde à estimativa do desvio-padrão do erro do modelo
+            (quadrado médio do erro).
+            """)
+
             
             st.markdown(r"""
             Como medida alternativa, mais robusta à presença de valores extremos,
@@ -3014,8 +3021,10 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             \text{MAE}
             =
             \frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
-            \qquad \textrm{em que a norma} \|\mathbf{\cdot}\|_1 \textrm{é definida por: }
-            \|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|.
+            """)
+
+            st.markdown(r"""
+            em que a norma $\|\mathbf{\cdot}\|_1$ é definida por:  $\|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|$. 
             """)
 
             st.markdown(r"""
@@ -3290,6 +3299,11 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     "de cada coeficiente de regressão e é utilizado no cálculo do valor-t, do valor-p "
     "e dos intervalos de confiança."
 )
+        st.caption(
+    "VIF (Variance Inflation Factor – Fator de Inflação da Variância) mede o grau de "
+    "multicolinearidade entre um preditor e os demais. Valores elevados de VIF indicam "
+    "coeficientes instáveis e aumento do erro-padrão das estimativas."
+    )
 
                 # -----------------------------
         # Download — Coeficientes
