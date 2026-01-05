@@ -11,6 +11,10 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
 
+from scipy.stats import shapiro
+
+
+
 # (se tiver scipy / pyDOE, ficam aqui também)
 
 # =============================================
@@ -2818,7 +2822,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             onde 
 
             - **$\mathbf{y}\in\mathbb{R}^{n \times 1}$** é o vetor de observações da resposta; 
-            - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
+            - $\mathbf{x}_0 \in \R^{n \times 1}$ é um vetor constante  de entradas unitárias, isto é, $\mathbf{x}_0 = [1\ 1\ \cdots\ 1]^T = \mathbf{1}_n \in \R^{n \times 1}$, o qual é responsável pelo processo de intercepto;
             - $\mathbf{x}_i \in \R^{n \times 1}$ é o vetor de observações do fator $i \in \{0,1,\cdots, p\}$; 
             -  $\beta_i$ representa o coeficiente associado ao fator $i \in \{0,1,\cdots, p\}$;
             - $\boldsymbol{\varepsilon}  \in \R^{n \times 1}$ é denominado de vetor de erros, o qual representa a parte da resposta não explicada pelo modelo e assumida de natureza aleatória. Em geral, assume-se que: $\mathbb{E}(\boldsymbol{\varepsilon})=\mathbf{0}_n$ (média nula) e $\operatorname{Var}(\boldsymbol{\varepsilon})=\sigma^2\mathbf{I}_n$ (matriz de covariância do vetor de erros é proporcional à matriz identidade de ordem $n$). 
@@ -3004,6 +3008,13 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             =
             \sqrt{\frac{\|\hat{\boldsymbol{\varepsilon}}\|^2}{n-p-1}}.
             """)
+
+            st.markdown(r"""
+            No **Sumário do Modelo**, essa quantidade é usualmente denotada por **$S$**
+            e corresponde à estimativa do desvio-padrão do erro do modelo
+            (quadrado médio do erro).
+            """)
+
             
             st.markdown(r"""
             Como medida alternativa, mais robusta à presença de valores extremos,
@@ -3014,8 +3025,10 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             \text{MAE}
             =
             \frac{1}{n}\|\hat{\boldsymbol{\varepsilon}}\|_1,
-            \qquad \textrm{em que a norma} \|\mathbf{\cdot}\|_1 \textrm{é definida por: }
-            \|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|.
+            """)
+
+            st.markdown(r"""
+            em que a norma $\|\mathbf{\cdot}\|_1$ é definida por:  $\|\mathbf{v}\|_1=\sum_{i=1}^n |v_i|$. 
             """)
 
             st.markdown(r"""
@@ -3290,6 +3303,25 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     "de cada coeficiente de regressão e é utilizado no cálculo do valor-t, do valor-p "
     "e dos intervalos de confiança."
 )
+        st.caption(
+    "VIF (Variance Inflation Factor – Fator de Inflação da Variância) mede o grau de "
+    "multicolinearidade entre um preditor e os demais. Valores elevados de VIF indicam "
+    "coeficientes instáveis e aumento do erro-padrão das estimativas."
+    )
+
+                # -----------------------------
+        # Download — Coeficientes
+        # -----------------------------
+        buf_coef = io.StringIO()
+        df_show.to_csv(buf_coef, index=False)
+        
+        st.download_button(
+            "📥 Baixar coeficientes da regressão",
+            buf_coef.getvalue().encode("utf-8"),
+            file_name=f"coeficientes_regressao_{var_label}.csv",
+            mime="text/csv",
+            key="dl_coef_regressao",
+        )
 
         st.markdown("---")
 
@@ -3313,6 +3345,359 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         st.latex(eq_latex)
         
         st.caption(f"Modelo ajustado para {var_label}, com termos lineares nos fatores codificados.")
+
+        st.markdown("---")
+
+        st.markdown("### 📌 Sumário do Modelo")
+
+        # -------------------------------
+        # Quantidades globais da regressão
+        # -------------------------------
+        
+        # Dimensões
+        n = X.shape[0]
+        p = X.shape[1] - 1   # número de preditores (exclui intercepto)
+        
+        # Graus de liberdade
+        gl_res = n - p - 1
+
+        # 1) Coeficientes
+        beta_hat = XtX_inv @ X.T @ y
+        
+        # 2) Ajuste e resíduos  <<< ESTE BLOCO É OBRIGATÓRIO
+        y_hat = X @ beta_hat
+        residuals = y - y_hat
+        
+        # Somas de quadrados
+        SQ_res = np.linalg.norm(residuals)**2
+        SQ_tot = np.linalg.norm(y - y.mean())**2
+        SQ_reg = SQ_tot - SQ_res
+        
+        # Coeficientes de determinação
+        R2 = 1 - SQ_res / SQ_tot
+        R2_aj = 1 - (SQ_res / gl_res) / (SQ_tot / (n - 1))
+        
+        # Estatísticas do erro
+        sigma2_hat = SQ_res / gl_res
+        RMSE = np.sqrt(sigma2_hat)   # S (Minitab)
+
+
+        # =========================
+        # PRESS e R²(pred)
+        # =========================
+        
+        # Matriz chapéu e alavancagens
+        H = X @ XtX_inv @ X.T
+        h = np.clip(np.diag(H), 0.0, 0.999999)  # evita divisão por zero
+        
+        # PRESS (LOOCV)
+        press_res = (residuals.ravel() / (1.0 - h))
+        PRESS = float(np.sum(press_res**2))
+        
+        # R² preditivo
+        R2_pred = 1 - PRESS / SQ_tot if SQ_tot > 0 else np.nan
+
+
+        # =========================
+        # AICc e BIC (seleção de modelos)
+        # =========================
+        
+        k = X.shape[1]  # número de parâmetros (inclui constante)
+        
+        if (SQ_res > 0) and (n > 0):
+            AIC = n * np.log(SQ_res / n) + 2 * k
+        
+            # AIC corrigido (AICc), quando possível
+            if (n - k - 1) > 0:
+                AICc = AIC + (2 * k * (k + 1)) / (n - k - 1)
+            else:
+                AICc = AIC
+        
+            BIC = n * np.log(SQ_res / n) + k * np.log(n)
+        else:
+            AICc = np.nan
+            BIC = np.nan
+
+        
+        df_summary = pd.DataFrame({
+            "S": [RMSE],
+            "R²": [100 * R2],
+            "R² (aj)": [100 * R2_aj],
+            "PRESS": [PRESS],
+            "R² (pred)": [100 * R2_pred],
+            "AICc": [AICc],
+            "BIC": [BIC],
+        })
+        
+        df_summary_fmt = df_summary.copy()
+        for c in df_summary_fmt.columns:
+            df_summary_fmt[c] = df_summary_fmt[c].map(
+                lambda x: f"{x:.2f}" if np.isfinite(x) else ""
+            )
+        
+        st.dataframe(df_summary_fmt, use_container_width=True, hide_index=True)
+        # -----------------------------
+        # Download — Sumário do Modelo
+        # -----------------------------
+        buf_summary = io.StringIO()
+        df_summary_fmt.to_csv(buf_summary, index=False)
+        
+        st.download_button(
+            "📥 Baixar sumário do modelo",
+            buf_summary.getvalue().encode("utf-8"),
+            file_name=f"sumario_modelo_{var_label}.csv",
+            mime="text/csv",
+            key="dl_sumario_modelo",
+        )
+        st.markdown("---")
+
+        st.subheader("🔎 Diagnóstico do Modelo — Normalidade dos Resíduos")
+        
+        st.caption(
+            "A normalidade dos resíduos é uma suposição importante da regressão linear, "
+            "especialmente para a validade de testes de hipóteses e intervalos de confiança."
+        )
+
+        resid = residuals.ravel()  # ou residuals.squeeze()
+        W, p_shapiro = shapiro(resid)
+
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.metric("Estatística W (Shapiro–Wilk)", f"{W:.4f}")
+        
+        with c2:
+            st.metric("p-valor", f"{p_shapiro:.4g}")
+
+        if p_shapiro < 0.05:
+            st.warning(
+                "⚠️ O teste de Shapiro–Wilk rejeita a hipótese de normalidade dos resíduos "
+                "(p < 0,05). Avalie transformações ou modelos alternativos."
+            )
+        else:
+            st.success(
+                "✅ Não há evidências estatísticas contra a normalidade dos resíduos "
+                "(p ≥ 0,05)."
+            )
+
+        st.markdown("---")
+        st.subheader("📈 QQ-plot dos Resíduos")
+        
+        # Idioma (mesmo padrão do app)
+        lang_diag = st.radio(
+            "Idioma / Language (QQ-plot):",
+            ["Português", "English"],
+            index=0,
+            horizontal=True,
+            key="lang_qqplot_diag",
+        )
+        
+        if lang_diag == "Português":
+            caption_txt = (
+                "O QQ-plot (Quantile–Quantile) compara os quantis dos resíduos com os quantis "
+                "de uma distribuição Normal padrão. Alinhamento próximo à reta indica "
+                "normalidade aproximada."
+            )
+            title_txt = "QQ-plot dos resíduos"
+            x_label = "Quantis teóricos (Normal)"
+            y_label = "Quantis observados (Resíduos)"
+            name_points = "Resíduos"
+            name_line = "Referência Normal"
+            hover_tmpl = "Quantil teórico: %{x:.3f}<br>Resíduo: %{y:.3f}<extra></extra>"
+        else:
+            caption_txt = (
+                "The QQ-plot (Quantile–Quantile) compares residual quantiles with the quantiles "
+                "of a standard Normal distribution. Points close to the reference line indicate "
+                "approximately normal residuals."
+            )
+            title_txt = "Residual QQ-plot"
+            x_label = "Theoretical quantiles (Normal)"
+            y_label = "Observed quantiles (Residuals)"
+            name_points = "Residuals"
+            name_line = "Normal reference"
+            hover_tmpl = "Theoretical quantile: %{x:.3f}<br>Residual: %{y:.3f}<extra></extra>"
+        
+        st.caption(caption_txt)
+        
+        # ----------------------------
+        # Resíduos (garante vetor 1D)
+        # ----------------------------
+        resid = np.asarray(residuals, dtype=float).ravel()
+        resid = resid[np.isfinite(resid)]
+        
+        if not HAS_SCIPY or len(resid) < 3:
+            st.info("QQ-plot indisponível (SciPy não instalado) ou amostra insuficiente."
+                    if lang_diag == "Português"
+                    else "QQ-plot unavailable (SciPy not installed) or insufficient sample size.")
+        else:
+            from scipy.stats import norm
+            import plotly.graph_objects as go
+        
+            resid_sorted = np.sort(resid)
+            n = len(resid_sorted)
+        
+            probs = (np.arange(1, n + 1) - 0.5) / n
+            q_theoretical = norm.ppf(probs)
+        
+            mu = resid_sorted.mean()
+            sigma = resid_sorted.std(ddof=1)
+        
+            fig = go.Figure()
+        
+            fig.add_trace(go.Scatter(
+                x=q_theoretical,
+                y=resid_sorted,
+                mode="markers",
+                name=name_points,
+                marker=dict(size=8, opacity=0.75),
+                hovertemplate=hover_tmpl,
+            ))
+        
+            fig.add_trace(go.Scatter(
+                x=q_theoretical,
+                y=mu + sigma * q_theoretical,
+                mode="lines",
+                name=name_line,
+                hoverinfo="skip",
+            ))
+        
+            fig.update_layout(
+                title=title_txt,
+                xaxis_title=x_label,
+                yaxis_title=y_label,
+                template="simple_white",
+                height=450,
+                legend=dict(
+                    orientation="v",
+                    x=1.05,          # empurra para fora do gráfico (direita)
+                    xanchor="left",
+                    y=1,
+                    yanchor="top"
+                ),
+                margin=dict(r=120)   # espaço extra à direita para a legenda
+            )
+
+        
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("📄 **Baixar figura**")
+        
+        color_mode = st.radio(
+            "Modo de cores para exportação:",
+            ["Cores (original)", "Preto e branco"],
+            index=0,
+            help="A visualização na tela permanece em cores. A opção afeta apenas os arquivos baixados.",
+            key="color_mode_qqplot",
+        )
+        
+        # Dimensões de exportação
+        export_width = 900
+        export_height = 520
+        
+        
+        def _make_export_fig():
+            # Cópia para exportação (não altera o fig exibido)
+            fig_exp = go.Figure(fig.to_dict())
+        
+            # Espaço extra à direita para legenda externa
+            fig_exp.update_layout(
+                width=export_width,
+                height=export_height,
+                margin=dict(l=70, r=160, t=70, b=70),
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                template="plotly_white",
+            )
+        
+            # Preto e branco apenas no arquivo exportado
+            if color_mode == "Preto e branco":
+                for tr in fig_exp.data:
+                    if isinstance(tr, go.Scatter):
+                        tr.update(
+                            marker=dict(color="black"),
+                            line=dict(color="black", width=2),
+                        )
+        
+            return fig_exp
+        
+        
+        def _export_bytes(fmt: str):
+            fig_exp = _make_export_fig()
+            try:
+                return fig_exp.to_image(
+                    format=fmt,
+                    scale=2,
+                    width=export_width,
+                    height=export_height,
+                )
+            except Exception:
+                st.warning(
+                    "Para exportar imagens, é necessário o pacote **kaleido**.\n\n"
+                    "Instale com:\n\n"
+                    "`pip install -U kaleido`\n\n"
+                    "ou\n\n"
+                    "`conda install -c conda-forge python-kaleido -y`"
+                )
+                raise
+        
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("📥 Gerar PNG", key="btn_png_qqplot"):
+                try:
+                    png_bytes = _export_bytes("png")
+                    st.download_button(
+                        "Baixar PNG",
+                        data=png_bytes,
+                        file_name="qqplot_residuos.png",
+                        mime="image/png",
+                        key="dl_png_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col2:
+            if st.button("📥 Gerar SVG", key="btn_svg_qqplot"):
+                try:
+                    svg_bytes = _export_bytes("svg")
+                    st.download_button(
+                        "Baixar SVG",
+                        data=svg_bytes,
+                        file_name="qqplot_residuos.svg",
+                        mime="image/svg+xml",
+                        key="dl_svg_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col3:
+            if st.button("📥 Gerar PDF", key="btn_pdf_qqplot"):
+                try:
+                    pdf_bytes = _export_bytes("pdf")
+                    st.download_button(
+                        "Baixar PDF",
+                        data=pdf_bytes,
+                        file_name="qqplot_residuos.pdf",
+                        mime="application/pdf",
+                        key="dl_pdf_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col4:
+            if st.button("📥 Gerar HTML interativo", key="btn_html_qqplot"):
+                html_bytes = pio.to_html(
+                    fig, include_plotlyjs="cdn", full_html=False
+                ).encode("utf-8")
+                st.download_button(
+                    "Baixar HTML",
+                    data=html_bytes,
+                    file_name="qqplot_residuos.html",
+                    mime="text/html",
+                    key="dl_html_qqplot",
+                )
 
         st.markdown("---")
 
