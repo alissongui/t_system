@@ -3449,6 +3449,70 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             mime="text/csv",
             key="dl_sumario_modelo",
         )
+
+
+        st.markdown("---")
+        st.subheader("📋 Tabela de resíduos (diagnóstico)")
+        
+        # Vetores 1D
+        y_obs = np.asarray(y, dtype=float).ravel()
+        y_fit = np.asarray(y_hat, dtype=float).ravel()
+        resid = np.asarray(residuals, dtype=float).ravel()
+        
+        # Leverage (h_ii) — você já calcula H e h no seu bloco do PRESS
+        # Se ainda não calculou H/h acima, use este fallback:
+        try:
+            h_ii = np.asarray(h, dtype=float).ravel()
+        except Exception:
+            H_local = X @ XtX_inv @ X.T
+            h_ii = np.clip(np.diag(H_local), 0.0, 0.999999)
+        
+        # S (RMSE / sigma_hat) — você já tem RMSE (S do Minitab)
+        S = float(RMSE) if np.isfinite(RMSE) else float("nan")
+        
+        # Resíduo padronizado: e_i / S
+        std_resid = resid / S if (np.isfinite(S) and S > 0) else np.full_like(resid, np.nan)
+        
+        # Resíduo studentizado interno: e_i / (S * sqrt(1 - h_ii))
+        den = S * np.sqrt(np.maximum(1.0 - h_ii, 1e-12)) if (np.isfinite(S) and S > 0) else np.full_like(resid, np.nan)
+        stud_resid = resid / den
+        
+        df_resid = pd.DataFrame({
+            "Experimento": df_plan["Experimento"].values if "Experimento" in df_plan.columns else np.arange(1, len(y_obs) + 1),
+            f"{var_label} (observado)": y_obs,
+            f"{var_label} (ajustado)": y_fit,
+            "Resíduo": resid
+        })
+        
+        # Formatação leve (não destrói os dados originais se você quiser exportar depois)
+        df_show = df_resid.copy()
+        for c in df_show.columns:
+            if c != "Experimento":
+                df_show[c] = pd.to_numeric(df_show[c], errors="coerce").map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        
+        st.caption(
+            "Resíduo = observado − ajustado. "
+            "Resíduo padronizado usa S (RMSE). "
+            "Resíduo studentizado ajusta também pela alavancagem (hᵢᵢ)."
+        )
+
+        # -----------------------------
+        # Download — Tabela de resíduos
+        # -----------------------------
+        buf_resid = io.StringIO()
+        df_show.to_csv(buf_resid, index=False)
+        
+        st.download_button(
+            "📥 Baixar tabela de resíduos (normalidade)",
+            data=buf_resid.getvalue().encode("utf-8"),
+            file_name=f"residuos_normalidade_{var_label}.csv",
+            mime="text/csv",
+            key="dl_residuos_normalidade",
+        )
+
+        
         st.markdown("---")
 
         st.subheader("🔎 Diagnóstico do Modelo — Normalidade dos Resíduos")
