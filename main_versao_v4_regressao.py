@@ -11,6 +11,10 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
 
+from scipy.stats import shapiro
+
+
+
 # (se tiver scipy / pyDOE, ficam aqui também)
 
 # =============================================
@@ -2777,7 +2781,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                         pooled_df[col] = pd.to_numeric(pooled_df[col], errors="coerce").round(4)
                     st.markdown("📌 **Fatores agrupados no erro (pooling)**")
                     st.dataframe(pooled_df, use_container_width=True, hide_index=True)
-        
+            
+    
             # Download CSV
             buf_anova = io.StringIO()
             anova_df.to_csv(buf_anova, index=False)
@@ -2788,6 +2793,110 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 mime="text/csv",
                 key="dl_anova_sn",
             )
+
+            st.markdown("---")
+            # =========================
+            # Relatório automático — ANOVA (Taguchi)
+            # =========================
+            if anova_df is not None:
+                st.subheader("🧾 Relatório automático — ANOVA Taguchi (S/N)")
+            
+                dfA = anova_df.copy()
+            
+                # Normaliza nomes de colunas (tolerante)
+                cols = {c.lower(): c for c in dfA.columns}
+            
+                # Possíveis colunas esperadas
+                col_fonte = cols.get("fonte", None) or cols.get("source", None)
+                col_p = cols.get("p", None) or cols.get("p-valor", None) or cols.get("pvalor", None) or cols.get("p-value", None)
+                col_sig = cols.get("significativo", None) or cols.get("significant", None)
+                col_contrib = (cols.get("contribuição (%)", None) or cols.get("contribuicao (%)", None) or
+                               cols.get("contrib (%)", None) or cols.get("contribution (%)", None))
+            
+                # Se não achar "Fonte", tenta a primeira coluna
+                if col_fonte is None and len(dfA.columns) > 0:
+                    col_fonte = dfA.columns[0]
+            
+                # Funções auxiliares
+                def _to_num(s):
+                    return pd.to_numeric(s, errors="coerce")
+            
+                def _fmt_p(pv):
+                    return f"{pv:.3f}".replace(".", ",") if np.isfinite(pv) else "—"
+            
+                bullets = []
+            
+                # ---------
+                # Seleciona apenas fatores (exclui Total/Erro/Resíduo se existirem)
+                # ---------
+                fonte_vals = dfA[col_fonte].astype(str)
+            
+                mask_fatores = ~fonte_vals.str.lower().isin(["total", "erro", "error", "resíduo", "residuo", "residual", "pure error"])
+                dfF = dfA.loc[mask_fatores].copy()
+            
+                # ---------
+                # Significância por p-valor (preferencial) ou coluna "Significativo"
+                # ---------
+                if col_p is not None:
+                    dfF["p_num"] = _to_num(dfF[col_p])
+            
+                    sig = dfF.loc[dfF["p_num"] < 0.05, [col_fonte, "p_num"]].sort_values("p_num")
+                    ns = dfF.loc[dfF["p_num"] >= 0.05, [col_fonte, "p_num"]].sort_values("p_num")
+                    nd = dfF.loc[~np.isfinite(dfF["p_num"]), [col_fonte]].copy()
+            
+                    if len(sig) > 0:
+                        parts = [f"{r[col_fonte]} (P={_fmt_p(r['p_num'])})" for _, r in sig.iterrows()]
+                        bullets.append("**Fatores significativos (5%)**: " + ", ".join(parts) + ".")
+            
+                    if len(ns) > 0:
+                        parts = [f"{r[col_fonte]} (P={_fmt_p(r['p_num'])})" for _, r in ns.iterrows()]
+                        bullets.append("**Fatores não significativos (5%)**: " + ", ".join(parts) + ".")
+            
+                    if len(nd) > 0:
+                        parts = [str(r[col_fonte]) for _, r in nd.iterrows()]
+                        bullets.append("**p-valor não determinado (n/d)** para: " + ", ".join(parts) + ".")
+                else:
+                    # fallback: usa coluna "Significativo" se existir (Sim/Não/n/d)
+                    if col_sig is not None:
+                        sig = dfF[dfF[col_sig].astype(str).str.lower().isin(["sim", "yes", "y", "true"])]
+                        ns = dfF[dfF[col_sig].astype(str).str.lower().isin(["não", "nao", "no", "n", "false"])]
+                        nd = dfF[~dfF.index.isin(sig.index) & ~dfF.index.isin(ns.index)]
+            
+                        if len(sig) > 0:
+                            bullets.append("**Fatores significativos (5%)**: " + ", ".join(sig[col_fonte].astype(str).tolist()) + ".")
+                        if len(ns) > 0:
+                            bullets.append("**Fatores não significativos (5%)**: " + ", ".join(ns[col_fonte].astype(str).tolist()) + ".")
+                        if len(nd) > 0:
+                            bullets.append("**Significância não determinada (n/d)** para: " + ", ".join(nd[col_fonte].astype(str).tolist()) + ".")
+                    else:
+                        bullets.append("Não foi possível determinar significância (colunas de p-valor/Significativo não encontradas).")
+            
+                # ---------
+                # Maior contribuição (%)
+                # ---------
+                if col_contrib is not None:
+                    dfF["contrib_num"] = _to_num(dfF[col_contrib])
+                    if dfF["contrib_num"].notna().any():
+                        idx = dfF["contrib_num"].idxmax()
+                        top_name = str(dfF.loc[idx, col_fonte])
+                        top_val = float(dfF.loc[idx, "contrib_num"])
+                        bullets.append(f"👉 **{top_name}** é o fator com maior contribuição (**{str(f'{top_val:.2f}').replace('.', ',')}%**).")
+            
+                # ---------
+                # Pooling (se aplicável)
+                # ---------
+                if meta.get("used_pooling") and meta.get("pooled_names"):
+                    pooled_str = ", ".join(meta["pooled_names"])
+                    bullets.append(
+                        "🔁 **Pooling automático aplicado**: "
+                        f"fatores com baixa contribuição foram agrupados no erro para permitir a estimativa estatística "
+                        f"({pooled_str})."
+                    )
+            
+                # Exibição
+                for b in bullets:
+                    st.markdown(f"- {b}")
+
         
         if not HAS_SCIPY:
             st.info(
@@ -2795,6 +2904,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 "Se desejar p-valores, instale SciPy no ambiente de execução:\n\n"
                 "`pip install scipy`"
             )
+
+        
         st.markdown("---")
     
 
@@ -3445,9 +3556,453 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             mime="text/csv",
             key="dl_sumario_modelo",
         )
+
+
+        st.markdown("---")
+        st.subheader("📋 Tabela de resíduos (diagnóstico)")
+        
+        # Vetores 1D
+        y_obs = np.asarray(y, dtype=float).ravel()
+        y_fit = np.asarray(y_hat, dtype=float).ravel()
+        resid = np.asarray(residuals, dtype=float).ravel()
+        
+        # Leverage (h_ii) — você já calcula H e h no seu bloco do PRESS
+        # Se ainda não calculou H/h acima, use este fallback:
+        try:
+            h_ii = np.asarray(h, dtype=float).ravel()
+        except Exception:
+            H_local = X @ XtX_inv @ X.T
+            h_ii = np.clip(np.diag(H_local), 0.0, 0.999999)
+        
+        # S (RMSE / sigma_hat) — você já tem RMSE (S do Minitab)
+        S = float(RMSE) if np.isfinite(RMSE) else float("nan")
+        
+        # Resíduo padronizado: e_i / S
+        std_resid = resid / S if (np.isfinite(S) and S > 0) else np.full_like(resid, np.nan)
+        
+        # Resíduo studentizado interno: e_i / (S * sqrt(1 - h_ii))
+        den = S * np.sqrt(np.maximum(1.0 - h_ii, 1e-12)) if (np.isfinite(S) and S > 0) else np.full_like(resid, np.nan)
+        stud_resid = resid / den
+        
+        df_resid = pd.DataFrame({
+            "Experimento": df_plan["Experimento"].values if "Experimento" in df_plan.columns else np.arange(1, len(y_obs) + 1),
+            f"{var_label} (observado)": y_obs,
+            f"{var_label} (ajustado)": y_fit,
+            "Resíduo": resid
+        })
+        
+        # Formatação leve (não destrói os dados originais se você quiser exportar depois)
+        df_show = df_resid.copy()
+        for c in df_show.columns:
+            if c != "Experimento":
+                df_show[c] = pd.to_numeric(df_show[c], errors="coerce").map(lambda v: f"{v:.4f}" if np.isfinite(v) else "")
+        
+        st.dataframe(df_show, use_container_width=True, hide_index=True)
+        
+        st.caption(
+            "Resíduo = observado − ajustado. "
+            "Resíduo padronizado usa S (RMSE). "
+            "Resíduo studentizado ajusta também pela alavancagem (hᵢᵢ)."
+        )
+
+        # -----------------------------
+        # Download — Tabela de resíduos
+        # -----------------------------
+        buf_resid = io.StringIO()
+        df_show.to_csv(buf_resid, index=False)
+        
+        st.download_button(
+            "📥 Baixar tabela de resíduos (normalidade)",
+            data=buf_resid.getvalue().encode("utf-8"),
+            file_name=f"residuos_normalidade_{var_label}.csv",
+            mime="text/csv",
+            key="dl_residuos_normalidade",
+        )
+
+        
         st.markdown("---")
 
-    
+        st.subheader("🔎 Diagnóstico do Modelo — Normalidade dos Resíduos")
+        
+        st.caption(
+            "A normalidade dos resíduos é uma suposição importante da regressão linear, "
+            "especialmente para a validade de testes de hipóteses e intervalos de confiança."
+        )
+
+        resid = residuals.ravel()  # ou residuals.squeeze()
+        W, p_shapiro = shapiro(resid)
+
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.metric("Estatística W (Shapiro–Wilk)", f"{W:.4f}")
+        
+        with c2:
+            st.metric("p-valor", f"{p_shapiro:.4g}")
+
+        if p_shapiro < 0.05:
+            st.warning(
+                "⚠️ O teste de Shapiro–Wilk rejeita a hipótese de normalidade dos resíduos "
+                "(p < 0,05). Avalie transformações ou modelos alternativos."
+            )
+        else:
+            st.success(
+                "✅ Não há evidências estatísticas contra a normalidade dos resíduos "
+                "(p ≥ 0,05)."
+            )
+
+        st.markdown("---")
+        st.subheader("📈 QQ-plot dos Resíduos")
+        
+        # Idioma (mesmo padrão do app)
+        lang_diag = st.radio(
+            "Idioma / Language (QQ-plot):",
+            ["Português", "English"],
+            index=0,
+            horizontal=True,
+            key="lang_qqplot_diag",
+        )
+        
+        if lang_diag == "Português":
+            caption_txt = (
+                "O QQ-plot (Quantile–Quantile) compara os quantis dos resíduos com os quantis "
+                "de uma distribuição Normal padrão. Alinhamento próximo à reta indica "
+                "normalidade aproximada."
+            )
+            title_txt = "QQ-plot dos resíduos"
+            x_label = "Quantis teóricos (Normal)"
+            y_label = "Quantis observados (Resíduos)"
+            name_points = "Resíduos"
+            name_line = "Referência Normal"
+            hover_tmpl = "Quantil teórico: %{x:.3f}<br>Resíduo: %{y:.3f}<extra></extra>"
+        else:
+            caption_txt = (
+                "The QQ-plot (Quantile–Quantile) compares residual quantiles with the quantiles "
+                "of a standard Normal distribution. Points close to the reference line indicate "
+                "approximately normal residuals."
+            )
+            title_txt = "Residual QQ-plot"
+            x_label = "Theoretical quantiles (Normal)"
+            y_label = "Observed quantiles (Residuals)"
+            name_points = "Residuals"
+            name_line = "Normal reference"
+            hover_tmpl = "Theoretical quantile: %{x:.3f}<br>Residual: %{y:.3f}<extra></extra>"
+        
+        st.caption(caption_txt)
+        
+        # ----------------------------
+        # Resíduos (garante vetor 1D)
+        # ----------------------------
+        resid = np.asarray(residuals, dtype=float).ravel()
+        resid = resid[np.isfinite(resid)]
+        
+        if not HAS_SCIPY or len(resid) < 3:
+            st.info("QQ-plot indisponível (SciPy não instalado) ou amostra insuficiente."
+                    if lang_diag == "Português"
+                    else "QQ-plot unavailable (SciPy not installed) or insufficient sample size.")
+        else:
+            from scipy.stats import norm
+            import plotly.graph_objects as go
+        
+            resid_sorted = np.sort(resid)
+            n = len(resid_sorted)
+        
+            probs = (np.arange(1, n + 1) - 0.5) / n
+            q_theoretical = norm.ppf(probs)
+        
+            mu = resid_sorted.mean()
+            sigma = resid_sorted.std(ddof=1)
+        
+            fig = go.Figure()
+        
+            fig.add_trace(go.Scatter(
+                x=q_theoretical,
+                y=resid_sorted,
+                mode="markers",
+                name=name_points,
+                marker=dict(size=8, opacity=0.75),
+                hovertemplate=hover_tmpl,
+            ))
+        
+            fig.add_trace(go.Scatter(
+                x=q_theoretical,
+                y=mu + sigma * q_theoretical,
+                mode="lines",
+                name=name_line,
+                hoverinfo="skip",
+            ))
+        
+            fig.update_layout(
+                title=title_txt,
+                xaxis_title=x_label,
+                yaxis_title=y_label,
+                template="simple_white",
+                height=450,
+                legend=dict(
+                    orientation="v",
+                    x=1.05,          # empurra para fora do gráfico (direita)
+                    xanchor="left",
+                    y=1,
+                    yanchor="top"
+                ),
+                margin=dict(r=120)   # espaço extra à direita para a legenda
+            )
+
+        
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("📄 **Baixar figura**")
+        
+        color_mode = st.radio(
+            "Modo de cores para exportação:",
+            ["Cores (original)", "Preto e branco"],
+            index=0,
+            help="A visualização na tela permanece em cores. A opção afeta apenas os arquivos baixados.",
+            key="color_mode_qqplot",
+        )
+        
+        # Dimensões de exportação
+        export_width = 900
+        export_height = 520
+        
+        
+        def _make_export_fig():
+            # Cópia para exportação (não altera o fig exibido)
+            fig_exp = go.Figure(fig.to_dict())
+        
+            # Espaço extra à direita para legenda externa
+            fig_exp.update_layout(
+                width=export_width,
+                height=export_height,
+                margin=dict(l=70, r=160, t=70, b=70),
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                template="plotly_white",
+            )
+        
+            # Preto e branco apenas no arquivo exportado
+            if color_mode == "Preto e branco":
+                for tr in fig_exp.data:
+                    if isinstance(tr, go.Scatter):
+                        tr.update(
+                            marker=dict(color="black"),
+                            line=dict(color="black", width=2),
+                        )
+        
+            return fig_exp
+        
+        
+        def _export_bytes(fmt: str):
+            fig_exp = _make_export_fig()
+            try:
+                return fig_exp.to_image(
+                    format=fmt,
+                    scale=2,
+                    width=export_width,
+                    height=export_height,
+                )
+            except Exception:
+                st.warning(
+                    "Para exportar imagens, é necessário o pacote **kaleido**.\n\n"
+                    "Instale com:\n\n"
+                    "`pip install -U kaleido`\n\n"
+                    "ou\n\n"
+                    "`conda install -c conda-forge python-kaleido -y`"
+                )
+                raise
+        
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.button("📥 Gerar PNG", key="btn_png_qqplot"):
+                try:
+                    png_bytes = _export_bytes("png")
+                    st.download_button(
+                        "Baixar PNG",
+                        data=png_bytes,
+                        file_name="qqplot_residuos.png",
+                        mime="image/png",
+                        key="dl_png_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col2:
+            if st.button("📥 Gerar SVG", key="btn_svg_qqplot"):
+                try:
+                    svg_bytes = _export_bytes("svg")
+                    st.download_button(
+                        "Baixar SVG",
+                        data=svg_bytes,
+                        file_name="qqplot_residuos.svg",
+                        mime="image/svg+xml",
+                        key="dl_svg_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col3:
+            if st.button("📥 Gerar PDF", key="btn_pdf_qqplot"):
+                try:
+                    pdf_bytes = _export_bytes("pdf")
+                    st.download_button(
+                        "Baixar PDF",
+                        data=pdf_bytes,
+                        file_name="qqplot_residuos.pdf",
+                        mime="application/pdf",
+                        key="dl_pdf_qqplot",
+                    )
+                except Exception:
+                    pass
+        
+        with col4:
+            if st.button("📥 Gerar HTML interativo", key="btn_html_qqplot"):
+                html_bytes = pio.to_html(
+                    fig, include_plotlyjs="cdn", full_html=False
+                ).encode("utf-8")
+                st.download_button(
+                    "Baixar HTML",
+                    data=html_bytes,
+                    file_name="qqplot_residuos.html",
+                    mime="text/html",
+                    key="dl_html_qqplot",
+                )
+
+        st.markdown("---")
+
+
+        st.subheader("🧾 Relatório automático — Regressão múltipla")
+        
+        alpha = 0.05
+        alpha_marg = 0.10  # faixa "marginal" (0,05 < P <= 0,10)
+        
+        # ---------
+        # df_coef -> preparar p-valor e VIF numéricos
+        # ---------
+        df_rep = df_coef.copy()
+        
+        # remove intercepto
+        df_rep = df_rep[df_rep["Termo"].astype(str).str.lower() != "constante"].copy()
+        
+        df_rep["p"] = pd.to_numeric(df_rep["Valor-P"], errors="coerce")
+        df_rep["vif_num"] = pd.to_numeric(df_rep["VIF"], errors="coerce")
+        
+        def fmt_p(pval):
+            return f"{pval:.3f}".replace(".", ",") if np.isfinite(pval) else "—"
+        
+        def join_terms(df_tp):
+            # Ex.: "Com (P=0,037), MR (P=0,062)"
+            parts = []
+            for _, r in df_tp.iterrows():
+                parts.append(f"{r['Termo']} (P={fmt_p(r['p'])})")
+            return ", ".join(parts)
+        
+        # ---------
+        # Classificação por significância
+        # ---------
+        sig = df_rep.loc[df_rep["p"] <= alpha, ["Termo", "p"]].sort_values("p")
+        marg = df_rep.loc[(df_rep["p"] > alpha) & (df_rep["p"] <= alpha_marg), ["Termo", "p"]].sort_values("p")
+        ns = df_rep.loc[df_rep["p"] > alpha_marg, ["Termo", "p"]].sort_values("p")
+        
+        bullets = []
+        
+        if len(sig) > 0:
+            bullets.append(f"**Significativos (P ≤ 0,05):** {join_terms(sig)}.")
+        if len(marg) > 0:
+            bullets.append(f"**Marginalmente significativos (0,05 < P ≤ 0,10):** {join_terms(marg)}.")
+        if len(ns) > 0:
+            bullets.append(f"**Não significativos (P > 0,10):** {join_terms(ns)}.")
+        
+        # ---------
+        # Multicolinearidade (VIF)
+        # ---------
+        vif_vals = df_rep["vif_num"].dropna().values
+        if len(vif_vals) > 0:
+            vmax = float(np.max(vif_vals))
+            if vmax <= 1.05:
+                bullets.append("**VIF ≈ 1** para todos os termos → sem evidência de multicolinearidade.")
+            elif vmax <= 5:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → multicolinearidade baixa/moderada.")
+            elif vmax <= 10:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → atenção: multicolinearidade relevante.")
+            else:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → multicolinearidade alta (coeficientes podem estar instáveis).")
+        else:
+            bullets.append("VIF não disponível para todos os termos.")
+        
+        
+        # ---------
+        # Maior contribuição (%), se existir
+        # ---------
+        dict_contrib = locals().get("dict_contrib", None)
+        if isinstance(dict_contrib, dict) and len(dict_contrib) > 0:
+            k_top = max(dict_contrib, key=dict_contrib.get)
+            v_top = dict_contrib[k_top]
+            if np.isfinite(v_top):
+                bullets.append(f"👉 **{k_top}** é o que mais contribui (**{str(f'{v_top:.2f}').replace('.', ',')}%**).")
+        
+        # ---------
+        # Exibição
+        # ---------
+        for b in bullets:
+            st.markdown(f"- {b}")
+
+        st.markdown("---")
+        st.subheader("🧾 Relatório automático — Diagnóstico dos resíduos")
+        
+        alpha = 0.05
+        bul_res = []
+        
+        # Garanta que resid é 1D (use o que você já tem: residuals ou resid)
+        # Se você já tem "resid" definido antes, pode pular estas duas linhas.
+        try:
+            resid_1d = np.asarray(resid, dtype=float).ravel()
+        except NameError:
+            resid_1d = np.asarray(residuals, dtype=float).ravel()
+        
+        resid_1d = resid_1d[np.isfinite(resid_1d)]
+        
+        # --- Shapiro–Wilk (teste formal) ---
+        if np.isfinite(p_shapiro):
+            if p_shapiro >= alpha:
+                bul_res.append(
+                    f"Não há evidências estatísticas contra a normalidade dos resíduos "
+                    f"(Shapiro–Wilk, P={str(f'{p_shapiro:.3f}').replace('.', ',')})."
+                )
+            else:
+                bul_res.append(
+                    f"O teste de Shapiro–Wilk rejeita a hipótese de normalidade dos resíduos "
+                    f"(P={str(f'{p_shapiro:.3f}').replace('.', ',')}). "
+                    "Considere transformação (log/Box-Cox) ou métodos mais robustos, se necessário."
+                )
+        else:
+            bul_res.append("O teste de Shapiro–Wilk não pôde ser avaliado para os resíduos.")
+        
+        # --- Complemento gráfico (QQ-plot) ---
+        # Como o QQ-plot é visual, usamos uma heurística leve para comentar “caudas”:
+        if len(resid_1d) >= 8:
+            q1, q99 = np.quantile(resid_1d, [0.01, 0.99])
+            q25, q75 = np.quantile(resid_1d, [0.25, 0.75])
+            iqr = q75 - q25
+        
+            # regra simples: caudas “pesadas” se extremos são muito grandes vs IQR
+            tail_score = (abs(q1) + abs(q99)) / (iqr + 1e-12)
+        
+            if tail_score <= 6:
+                bul_res.append("O QQ-plot sugere boa aderência à Normal, sem desvios fortes nas caudas.")
+            else:
+                bul_res.append("O QQ-plot sugere possíveis desvios nas caudas (valores extremos mais pronunciados).")
+        else:
+            bul_res.append("O QQ-plot foi gerado; para amostras pequenas, priorize a interpretação visual.")
+        
+        # Exibição
+        for r in bul_res:
+            st.markdown(f"- {r}")
+
+        st.markdown("---")
+
     # =============================================
     # 🔖 Abas de resultados
     # =============================================

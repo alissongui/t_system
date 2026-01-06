@@ -2781,7 +2781,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                         pooled_df[col] = pd.to_numeric(pooled_df[col], errors="coerce").round(4)
                     st.markdown("📌 **Fatores agrupados no erro (pooling)**")
                     st.dataframe(pooled_df, use_container_width=True, hide_index=True)
-        
+            
+    
             # Download CSV
             buf_anova = io.StringIO()
             anova_df.to_csv(buf_anova, index=False)
@@ -2792,6 +2793,110 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 mime="text/csv",
                 key="dl_anova_sn",
             )
+
+            st.markdown("---")
+            # =========================
+            # Relatório automático — ANOVA (Taguchi)
+            # =========================
+            if anova_df is not None:
+                st.subheader("🧾 Relatório automático — ANOVA Taguchi (S/N)")
+            
+                dfA = anova_df.copy()
+            
+                # Normaliza nomes de colunas (tolerante)
+                cols = {c.lower(): c for c in dfA.columns}
+            
+                # Possíveis colunas esperadas
+                col_fonte = cols.get("fonte", None) or cols.get("source", None)
+                col_p = cols.get("p", None) or cols.get("p-valor", None) or cols.get("pvalor", None) or cols.get("p-value", None)
+                col_sig = cols.get("significativo", None) or cols.get("significant", None)
+                col_contrib = (cols.get("contribuição (%)", None) or cols.get("contribuicao (%)", None) or
+                               cols.get("contrib (%)", None) or cols.get("contribution (%)", None))
+            
+                # Se não achar "Fonte", tenta a primeira coluna
+                if col_fonte is None and len(dfA.columns) > 0:
+                    col_fonte = dfA.columns[0]
+            
+                # Funções auxiliares
+                def _to_num(s):
+                    return pd.to_numeric(s, errors="coerce")
+            
+                def _fmt_p(pv):
+                    return f"{pv:.3f}".replace(".", ",") if np.isfinite(pv) else "—"
+            
+                bullets = []
+            
+                # ---------
+                # Seleciona apenas fatores (exclui Total/Erro/Resíduo se existirem)
+                # ---------
+                fonte_vals = dfA[col_fonte].astype(str)
+            
+                mask_fatores = ~fonte_vals.str.lower().isin(["total", "erro", "error", "resíduo", "residuo", "residual", "pure error"])
+                dfF = dfA.loc[mask_fatores].copy()
+            
+                # ---------
+                # Significância por p-valor (preferencial) ou coluna "Significativo"
+                # ---------
+                if col_p is not None:
+                    dfF["p_num"] = _to_num(dfF[col_p])
+            
+                    sig = dfF.loc[dfF["p_num"] < 0.05, [col_fonte, "p_num"]].sort_values("p_num")
+                    ns = dfF.loc[dfF["p_num"] >= 0.05, [col_fonte, "p_num"]].sort_values("p_num")
+                    nd = dfF.loc[~np.isfinite(dfF["p_num"]), [col_fonte]].copy()
+            
+                    if len(sig) > 0:
+                        parts = [f"{r[col_fonte]} (P={_fmt_p(r['p_num'])})" for _, r in sig.iterrows()]
+                        bullets.append("**Fatores significativos (5%)**: " + ", ".join(parts) + ".")
+            
+                    if len(ns) > 0:
+                        parts = [f"{r[col_fonte]} (P={_fmt_p(r['p_num'])})" for _, r in ns.iterrows()]
+                        bullets.append("**Fatores não significativos (5%)**: " + ", ".join(parts) + ".")
+            
+                    if len(nd) > 0:
+                        parts = [str(r[col_fonte]) for _, r in nd.iterrows()]
+                        bullets.append("**p-valor não determinado (n/d)** para: " + ", ".join(parts) + ".")
+                else:
+                    # fallback: usa coluna "Significativo" se existir (Sim/Não/n/d)
+                    if col_sig is not None:
+                        sig = dfF[dfF[col_sig].astype(str).str.lower().isin(["sim", "yes", "y", "true"])]
+                        ns = dfF[dfF[col_sig].astype(str).str.lower().isin(["não", "nao", "no", "n", "false"])]
+                        nd = dfF[~dfF.index.isin(sig.index) & ~dfF.index.isin(ns.index)]
+            
+                        if len(sig) > 0:
+                            bullets.append("**Fatores significativos (5%)**: " + ", ".join(sig[col_fonte].astype(str).tolist()) + ".")
+                        if len(ns) > 0:
+                            bullets.append("**Fatores não significativos (5%)**: " + ", ".join(ns[col_fonte].astype(str).tolist()) + ".")
+                        if len(nd) > 0:
+                            bullets.append("**Significância não determinada (n/d)** para: " + ", ".join(nd[col_fonte].astype(str).tolist()) + ".")
+                    else:
+                        bullets.append("Não foi possível determinar significância (colunas de p-valor/Significativo não encontradas).")
+            
+                # ---------
+                # Maior contribuição (%)
+                # ---------
+                if col_contrib is not None:
+                    dfF["contrib_num"] = _to_num(dfF[col_contrib])
+                    if dfF["contrib_num"].notna().any():
+                        idx = dfF["contrib_num"].idxmax()
+                        top_name = str(dfF.loc[idx, col_fonte])
+                        top_val = float(dfF.loc[idx, "contrib_num"])
+                        bullets.append(f"👉 **{top_name}** é o fator com maior contribuição (**{str(f'{top_val:.2f}').replace('.', ',')}%**).")
+            
+                # ---------
+                # Pooling (se aplicável)
+                # ---------
+                if meta.get("used_pooling") and meta.get("pooled_names"):
+                    pooled_str = ", ".join(meta["pooled_names"])
+                    bullets.append(
+                        "🔁 **Pooling automático aplicado**: "
+                        f"fatores com baixa contribuição foram agrupados no erro para permitir a estimativa estatística "
+                        f"({pooled_str})."
+                    )
+            
+                # Exibição
+                for b in bullets:
+                    st.markdown(f"- {b}")
+
         
         if not HAS_SCIPY:
             st.info(
@@ -2799,6 +2904,8 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 "Se desejar p-valores, instale SciPy no ambiente de execução:\n\n"
                 "`pip install scipy`"
             )
+
+        
         st.markdown("---")
     
 
@@ -3765,7 +3872,137 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
 
         st.markdown("---")
 
-    
+
+        st.subheader("🧾 Relatório automático — Regressão múltipla")
+        
+        alpha = 0.05
+        alpha_marg = 0.10  # faixa "marginal" (0,05 < P <= 0,10)
+        
+        # ---------
+        # df_coef -> preparar p-valor e VIF numéricos
+        # ---------
+        df_rep = df_coef.copy()
+        
+        # remove intercepto
+        df_rep = df_rep[df_rep["Termo"].astype(str).str.lower() != "constante"].copy()
+        
+        df_rep["p"] = pd.to_numeric(df_rep["Valor-P"], errors="coerce")
+        df_rep["vif_num"] = pd.to_numeric(df_rep["VIF"], errors="coerce")
+        
+        def fmt_p(pval):
+            return f"{pval:.3f}".replace(".", ",") if np.isfinite(pval) else "—"
+        
+        def join_terms(df_tp):
+            # Ex.: "Com (P=0,037), MR (P=0,062)"
+            parts = []
+            for _, r in df_tp.iterrows():
+                parts.append(f"{r['Termo']} (P={fmt_p(r['p'])})")
+            return ", ".join(parts)
+        
+        # ---------
+        # Classificação por significância
+        # ---------
+        sig = df_rep.loc[df_rep["p"] <= alpha, ["Termo", "p"]].sort_values("p")
+        marg = df_rep.loc[(df_rep["p"] > alpha) & (df_rep["p"] <= alpha_marg), ["Termo", "p"]].sort_values("p")
+        ns = df_rep.loc[df_rep["p"] > alpha_marg, ["Termo", "p"]].sort_values("p")
+        
+        bullets = []
+        
+        if len(sig) > 0:
+            bullets.append(f"**Significativos (P ≤ 0,05):** {join_terms(sig)}.")
+        if len(marg) > 0:
+            bullets.append(f"**Marginalmente significativos (0,05 < P ≤ 0,10):** {join_terms(marg)}.")
+        if len(ns) > 0:
+            bullets.append(f"**Não significativos (P > 0,10):** {join_terms(ns)}.")
+        
+        # ---------
+        # Multicolinearidade (VIF)
+        # ---------
+        vif_vals = df_rep["vif_num"].dropna().values
+        if len(vif_vals) > 0:
+            vmax = float(np.max(vif_vals))
+            if vmax <= 1.05:
+                bullets.append("**VIF ≈ 1** para todos os termos → sem evidência de multicolinearidade.")
+            elif vmax <= 5:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → multicolinearidade baixa/moderada.")
+            elif vmax <= 10:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → atenção: multicolinearidade relevante.")
+            else:
+                bullets.append(f"**VIF máximo = {vmax:.2f}** → multicolinearidade alta (coeficientes podem estar instáveis).")
+        else:
+            bullets.append("VIF não disponível para todos os termos.")
+        
+        
+        # ---------
+        # Maior contribuição (%), se existir
+        # ---------
+        dict_contrib = locals().get("dict_contrib", None)
+        if isinstance(dict_contrib, dict) and len(dict_contrib) > 0:
+            k_top = max(dict_contrib, key=dict_contrib.get)
+            v_top = dict_contrib[k_top]
+            if np.isfinite(v_top):
+                bullets.append(f"👉 **{k_top}** é o que mais contribui (**{str(f'{v_top:.2f}').replace('.', ',')}%**).")
+        
+        # ---------
+        # Exibição
+        # ---------
+        for b in bullets:
+            st.markdown(f"- {b}")
+
+        st.markdown("---")
+        st.subheader("🧾 Relatório automático — Diagnóstico dos resíduos")
+        
+        alpha = 0.05
+        bul_res = []
+        
+        # Garanta que resid é 1D (use o que você já tem: residuals ou resid)
+        # Se você já tem "resid" definido antes, pode pular estas duas linhas.
+        try:
+            resid_1d = np.asarray(resid, dtype=float).ravel()
+        except NameError:
+            resid_1d = np.asarray(residuals, dtype=float).ravel()
+        
+        resid_1d = resid_1d[np.isfinite(resid_1d)]
+        
+        # --- Shapiro–Wilk (teste formal) ---
+        if np.isfinite(p_shapiro):
+            if p_shapiro >= alpha:
+                bul_res.append(
+                    f"Não há evidências estatísticas contra a normalidade dos resíduos "
+                    f"(Shapiro–Wilk, P={str(f'{p_shapiro:.3f}').replace('.', ',')})."
+                )
+            else:
+                bul_res.append(
+                    f"O teste de Shapiro–Wilk rejeita a hipótese de normalidade dos resíduos "
+                    f"(P={str(f'{p_shapiro:.3f}').replace('.', ',')}). "
+                    "Considere transformação (log/Box-Cox) ou métodos mais robustos, se necessário."
+                )
+        else:
+            bul_res.append("O teste de Shapiro–Wilk não pôde ser avaliado para os resíduos.")
+        
+        # --- Complemento gráfico (QQ-plot) ---
+        # Como o QQ-plot é visual, usamos uma heurística leve para comentar “caudas”:
+        if len(resid_1d) >= 8:
+            q1, q99 = np.quantile(resid_1d, [0.01, 0.99])
+            q25, q75 = np.quantile(resid_1d, [0.25, 0.75])
+            iqr = q75 - q25
+        
+            # regra simples: caudas “pesadas” se extremos são muito grandes vs IQR
+            tail_score = (abs(q1) + abs(q99)) / (iqr + 1e-12)
+        
+            if tail_score <= 6:
+                bul_res.append("O QQ-plot sugere boa aderência à Normal, sem desvios fortes nas caudas.")
+            else:
+                bul_res.append("O QQ-plot sugere possíveis desvios nas caudas (valores extremos mais pronunciados).")
+        else:
+            bul_res.append("O QQ-plot foi gerado; para amostras pequenas, priorize a interpretação visual.")
+        
+        # Exibição
+        for r in bul_res:
+            st.markdown(f"- {r}")
+
+        st.markdown("---")
+
     # =============================================
     # 🔖 Abas de resultados
     # =============================================
