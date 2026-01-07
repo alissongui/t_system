@@ -637,33 +637,6 @@ def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: s
     return anova_df, meta
 
 ##
-def tabela_observado_predito_regressao(y, y_hat, residuals, var_label):
-    st.subheader("📊 Observado × Predito (Regressão)")
-
-    y_obs = np.asarray(y, dtype=float).ravel()
-    y_pred = np.asarray(y_hat, dtype=float).ravel()
-    resid = np.asarray(residuals, dtype=float).ravel()
-
-    df_pred = pd.DataFrame({
-        f"{var_label} (observado)": y_obs,
-        f"{var_label} (predito)": y_pred,
-        "Resíduo": resid,
-    })
-
-    st.dataframe(df_pred.round(4), use_container_width=True, hide_index=True)
-
-    # Download (mesmo padrão)
-    buf = io.StringIO()
-    df_pred.to_csv(buf, index=False)
-    st.download_button(
-        "📥 Baixar Observado × Predito (CSV)",
-        data=buf.getvalue().encode("utf-8"),
-        file_name=f"observado_predito_regressao_{var_label}.csv",
-        mime="text/csv",
-        key="dl_obs_pred_reg",
-    )
-
-
 def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
     """
     levels: {"A": "1", "B": "2", ...} com valores como strings
@@ -701,7 +674,10 @@ def predicao_usuario_regressao(
     # Entrada do usuário
     levels = {}
     for f in factor_cols:
-        lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z) if str(z).isdigit() else str(z))
+        lvls = sorted(
+            df_plan[f].astype(str).unique(),
+            key=lambda z: int(z) if str(z).isdigit() else str(z)
+        )
         levels[f] = st.selectbox(f"Nível para {f}", lvls, key=f"lvl_reg_{f}")
 
     # Monta X_new coerente com o treino
@@ -710,7 +686,7 @@ def predicao_usuario_regressao(
     # Predição pontual
     y_hat_new = float(X_new @ beta_hat)
 
-    # Intervalos (IC da média e IP de predição)
+    # IC 95% da média
     alpha = 0.05
     t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
 
@@ -718,14 +694,8 @@ def predicao_usuario_regressao(
     v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
     se_mean = np.sqrt(max(v_mean, 0.0))
 
-    # IC da média
     ic_low = y_hat_new - t_crit * se_mean if np.isfinite(t_crit) else np.nan
     ic_high = y_hat_new + t_crit * se_mean if np.isfinite(t_crit) else np.nan
-
-    # Intervalo de predição: Var(y_new - ŷ) = sigma2 * (1 + x' (X'X)^-1 x)
-    se_pred = np.sqrt(max(float(sigma2_hat * (1.0 + (X_new @ XtX_inv @ X_new.T))), 0.0))
-    ip_low = y_hat_new - t_crit * se_pred if np.isfinite(t_crit) else np.nan
-    ip_high = y_hat_new + t_crit * se_pred if np.isfinite(t_crit) else np.nan
 
     st.markdown("🔍 **Resultados da predição (regressão)**")
 
@@ -734,22 +704,20 @@ def predicao_usuario_regressao(
         st.metric(f"Predição para {var_label}", f"{y_hat_new:.4f}")
 
     with col2:
-        # mostra IC/IP de forma compacta
         ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
-        ip_txt = f"[{ip_low:.4f}; {ip_high:.4f}]" if np.isfinite(ip_low) else "n/d"
-        st.markdown(
-            f"- **IC 95% (média)**: {ic_txt}\n"
-            f"- **IP 95% (predição)**: {ip_txt}"
-        )
+        st.markdown(f"- **IC 95% (média)**: {ic_txt}")
 
-    # Exportação “do ponto”
+    st.caption(
+        "IC 95% (média): intervalo onde se espera que esteja a média verdadeira da resposta "
+        "para a combinação de níveis selecionada."
+    )
+
+    # Exportação do ponto (somente IC)
     df_point = pd.DataFrame([{
         **{f: str(levels[f]) for f in factor_cols},
         f"{var_label}_pred": y_hat_new,
         "IC95_low": ic_low,
         "IC95_high": ic_high,
-        "IP95_low": ip_low,
-        "IP95_high": ip_high,
     }])
 
     buf = io.StringIO()
@@ -763,6 +731,7 @@ def predicao_usuario_regressao(
     )
 
     return levels, y_hat_new
+
 
 
 def ponto_otimo_regressao(df_plan, factor_cols, var_label, beta_hat, X_dum_cols, maximize=True):
@@ -3767,7 +3736,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         df_resid = pd.DataFrame({
             "Experimento": df_plan["Experimento"].values if "Experimento" in df_plan.columns else np.arange(1, len(y_obs) + 1),
             f"{var_label} (observado)": y_obs,
-            f"{var_label} (ajustado)": y_fit,
+            f"{var_label} (predito)": y_fit,
             "Resíduo": resid
         })
         
@@ -4181,19 +4150,6 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         for r in bul_res:
             st.markdown(f"- {r}")
 
-        # =========================================
-        # 📈 Predições (modelo de regressão)
-        # =========================================
-        st.markdown("---")
-        st.subheader("📈 Predições — Modelo de Regressão")
-        
-        # 1) Observado × Predito
-        tabela_observado_predito_regressao(
-            y=y,
-            y_hat=y_hat,
-            residuals=residuals,
-            var_label=var_label,
-        )
         
         # 2) Predição para qualquer combinação
         X_dum_cols = list(X_dum.columns)  # IMPORTANTÍSSIMO (mesmo layout do treino)
