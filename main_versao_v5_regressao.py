@@ -666,71 +666,152 @@ def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
 def predicao_usuario_regressao(
     df_plan, factor_cols, var_label,
     beta_hat, XtX_inv, sigma2_hat, df_res, t_dist,
-    X_dum_cols
+    X_dum_cols,
+    key_prefix="reg_pred"  # <- permite chamar a função em mais de um lugar sem conflito
 ):
     st.markdown("---")
-    st.subheader("🧮 Predição (Regressão) para qualquer combinação")
+    st.subheader("📥 Predições (Regressão) — downloads")
 
-    # Entrada do usuário
+    # Entrada do usuário (aqui é ok mostrar, pois é seleção)
     levels = {}
     for f in factor_cols:
         lvls = sorted(
             df_plan[f].astype(str).unique(),
             key=lambda z: int(z) if str(z).isdigit() else str(z)
         )
-        levels[f] = st.selectbox(f"Nível para {f}", lvls, key=f"lvl_reg_{f}")
+        levels[f] = st.selectbox(
+            f"Nível para {f}",
+            lvls,
+            key=f"{key_prefix}_lvl_{var_label}_{f}"
+        )
 
-    # Monta X_new coerente com o treino
-    X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
-
-    # Predição pontual
-    y_hat_new = float(X_new @ beta_hat)
-
-    # IC 95% da média
+    # IC 95% da média (ponto escolhido)
     alpha = 0.05
     t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
 
-    # Var(ŷ) = sigma2 * x' (X'X)^-1 x
+    X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
+    y_hat_new = float(X_new @ beta_hat)
+
     v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
     se_mean = np.sqrt(max(v_mean, 0.0))
 
     ic_low = y_hat_new - t_crit * se_mean if np.isfinite(t_crit) else np.nan
     ic_high = y_hat_new + t_crit * se_mean if np.isfinite(t_crit) else np.nan
 
-    st.markdown("🔍 **Resultados da predição (regressão)**")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(f"Predição para {var_label}", f"{y_hat_new:.4f}")
-
-    with col2:
-        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
-        st.markdown(f"- **IC 95% (média)**: {ic_txt}")
-
-    st.caption(
-        "IC 95% (média): intervalo onde se espera que esteja a média verdadeira da resposta "
-        "para a combinação de níveis selecionada."
-    )
-
-    # Exportação do ponto (somente IC)
-    df_point = pd.DataFrame([{
+    # =========================
+    # 1) CSV — ensaio (ponto atual)
+    # =========================
+    df_one = pd.DataFrame([{
         **{f: str(levels[f]) for f in factor_cols},
         f"{var_label}_pred": y_hat_new,
         "IC95_low": ic_low,
         "IC95_high": ic_high,
     }])
+    buf_one = io.StringIO()
+    df_one.to_csv(buf_one, index=False)
+    fname_one = f"predicao_ponto_regressao_{var_label}.csv"
 
-    buf = io.StringIO()
-    df_point.to_csv(buf, index=False)
-    st.download_button(
-        "📥 Baixar predição do ponto (CSV)",
-        data=buf.getvalue().encode("utf-8"),
-        file_name=f"predicao_ponto_regressao_{var_label}.csv",
-        mime="text/csv",
-        key="dl_pred_ponto_reg",
+    # =========================
+    # 2) CSV — matriz fatorial completa (todas combinações)
+    # =========================
+    # Para não pesar: o usuário decide gerar
+    gerar_full = st.checkbox(
+        "Gerar matriz fatorial completa (pode ser pesado)",
+        value=False,
+        key=f"{key_prefix}_chk_full_{var_label}",
     )
 
+    buf_full = None
+    fname_full = f"predicao_regressao_todas_combinacoes_{var_label}.csv"
+
+    if gerar_full:
+        combos = _all_factorial_combinations(df_plan, factor_cols)
+
+        # trava de segurança (ajuste como quiser)
+        max_combos = 200_000
+        if len(combos) > max_combos:
+            st.warning(
+                f"⚠️ A matriz teria {len(combos):,} combinações (limite: {max_combos:,}). "
+                "Reduza níveis/fatores ou implemente export Top-N."
+            )
+        else:
+            rows = []
+            for levels_i in combos:
+                X_i = _build_X_row_from_levels(levels_i, factor_cols, X_dum_cols)
+                y_i = float(X_i @ beta_hat)
+
+                v_i = float(sigma2_hat * (X_i @ XtX_inv @ X_i.T))
+                se_i = np.sqrt(max(v_i, 0.0))
+
+                ic_l = y_i - t_crit * se_i if np.isfinite(t_crit) else np.nan
+                ic_h = y_i + t_crit * se_i if np.isfinite(t_crit) else np.nan
+
+                rows.append({
+                    **levels_i,
+                    f"{var_label}_pred": y_i,
+                    "IC95_low": ic_l,
+                    "IC95_high": ic_h,
+                })
+
+            df_full = pd.DataFrame(rows).sort_values(f"{var_label}_pred", ascending=False)
+
+            buf_full = io.StringIO()
+            df_full.to_csv(buf_full, index=False)
+
+    # =========================
+    # Botões em 2 colunas (keys únicos)
+    # =========================
+    col_b1, col_b2 = st.columns(2)
+
+    with col_b1:
+        st.download_button(
+            "📥 Baixar ensaio (predição atual)",
+            data=buf_one.getvalue().encode("utf-8"),
+            file_name=fname_one,
+            mime="text/csv",
+            key=f"{key_prefix}_dl_pred_one_{var_label}",
+        )
+
+    with col_b2:
+        if buf_full is None:
+            st.download_button(
+                "📥 Baixar matriz fatorial completa (predições)",
+                data="Arquivo indisponível (marque a opção para gerar).".encode("utf-8"),
+                file_name=fname_full,
+                mime="text/plain",
+                key=f"{key_prefix}_dl_pred_full_disabled_{var_label}",
+                disabled=True,
+            )
+        else:
+            st.download_button(
+                "📥 Baixar matriz fatorial completa (predições)",
+                data=buf_full.getvalue().encode("utf-8"),
+                file_name=fname_full,
+                mime="text/csv",
+                key=f"{key_prefix}_dl_pred_full_{var_label}",
+            )
+
+    # retorna caso você use depois
     return levels, y_hat_new
+
+
+
+def _all_factorial_combinations(df_plan, factor_cols):
+    """Retorna lista de dicts com todas combinações de níveis existentes em df_plan."""
+    levels_by_factor = {}
+    for f in factor_cols:
+        lvls = sorted(
+            df_plan[f].astype(str).unique(),
+            key=lambda z: int(z) if str(z).isdigit() else str(z)
+        )
+        levels_by_factor[f] = lvls
+
+    combos = itertools.product(*[levels_by_factor[f] for f in factor_cols])
+
+    out = []
+    for combo in combos:
+        out.append({f: str(v) for f, v in zip(factor_cols, combo)})
+    return out
 
 
 
