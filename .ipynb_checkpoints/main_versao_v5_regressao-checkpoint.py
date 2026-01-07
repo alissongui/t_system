@@ -667,12 +667,12 @@ def predicao_usuario_regressao(
     df_plan, factor_cols, var_label,
     beta_hat, XtX_inv, sigma2_hat, df_res, t_dist,
     X_dum_cols,
-    key_prefix="reg_pred"  # <- permite chamar a função em mais de um lugar sem conflito
+    key_prefix="reg_pred"   # <- evita conflito de keys em outras abas
 ):
     st.markdown("---")
-    st.subheader("📥 Predições (Regressão) — downloads")
+    st.subheader("🧮 Predição (Regressão) para qualquer combinação")
 
-    # Entrada do usuário (aqui é ok mostrar, pois é seleção)
+    # ----------------- Entrada do usuário -----------------
     levels = {}
     for f in factor_cols:
         lvls = sorted(
@@ -682,15 +682,16 @@ def predicao_usuario_regressao(
         levels[f] = st.selectbox(
             f"Nível para {f}",
             lvls,
-            key=f"{key_prefix}_lvl_{var_label}_{f}"
+            key=f"{key_prefix}_lvl_{var_label}_{f}",
         )
 
-    # IC 95% da média (ponto escolhido)
-    alpha = 0.05
-    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
-
+    # ----------------- Predição do ponto (ŷ) -----------------
     X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
     y_hat_new = float(X_new @ beta_hat)
+
+    # ----------------- IC 95% da média -----------------
+    alpha = 0.05
+    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
 
     v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
     se_mean = np.sqrt(max(v_mean, 0.0))
@@ -698,25 +699,44 @@ def predicao_usuario_regressao(
     ic_low = y_hat_new - t_crit * se_mean if np.isfinite(t_crit) else np.nan
     ic_high = y_hat_new + t_crit * se_mean if np.isfinite(t_crit) else np.nan
 
-    # =========================
-    # 1) CSV — ensaio (ponto atual)
-    # =========================
+    # ======================================================
+    # 🔍 Resultados em tela (SEU PADRÃO)
+    # ======================================================
+    st.markdown("🔍 **Resultados da predição (regressão)**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(f"Predição para {var_label}", f"{y_hat_new:.4f}")
+
+    with col2:
+        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
+        st.markdown(f"- **IC 95% (média)**: {ic_txt}")
+
+    st.caption(
+        "IC 95% (média): intervalo onde se espera que esteja a média verdadeira da resposta "
+        "para a combinação de níveis selecionada."
+    )
+
+    # ======================================================
+    # 📥 Exportações
+    # ======================================================
+    st.markdown("### 📥 Exportações de predição")
+
+    # 1) CSV — ensaio (predição atual)
     df_one = pd.DataFrame([{
         **{f: str(levels[f]) for f in factor_cols},
         f"{var_label}_pred": y_hat_new,
         "IC95_low": ic_low,
         "IC95_high": ic_high,
     }])
+
     buf_one = io.StringIO()
     df_one.to_csv(buf_one, index=False)
     fname_one = f"predicao_ponto_regressao_{var_label}.csv"
 
-    # =========================
-    # 2) CSV — matriz fatorial completa (todas combinações)
-    # =========================
-    # Para não pesar: o usuário decide gerar
+    # 2) CSV — matriz fatorial completa (opcional)
     gerar_full = st.checkbox(
-        "Gerar matriz fatorial completa (pode ser pesado)",
+        "Gerar matriz fatorial completa (recomendado apenas para número moderado de fatores/níveis)",
         value=False,
         key=f"{key_prefix}_chk_full_{var_label}",
     )
@@ -732,7 +752,7 @@ def predicao_usuario_regressao(
         if len(combos) > max_combos:
             st.warning(
                 f"⚠️ A matriz teria {len(combos):,} combinações (limite: {max_combos:,}). "
-                "Reduza níveis/fatores ou implemente export Top-N."
+                "Reduza níveis/fatores ou use Top-N."
             )
         else:
             rows = []
@@ -753,14 +773,14 @@ def predicao_usuario_regressao(
                     "IC95_high": ic_h,
                 })
 
-            df_full = pd.DataFrame(rows).sort_values(f"{var_label}_pred", ascending=False)
+            df_full = pd.DataFrame(rows).sort_values(f"{var_label}_pred", ascending=False).reset_index(drop=True)
 
             buf_full = io.StringIO()
             df_full.to_csv(buf_full, index=False)
 
-    # =========================
-    # Botões em 2 colunas (keys únicos)
-    # =========================
+    # -------------------------
+    # Downloads em 2 colunas
+    # -------------------------
     col_b1, col_b2 = st.columns(2)
 
     with col_b1:
@@ -791,7 +811,6 @@ def predicao_usuario_regressao(
                 key=f"{key_prefix}_dl_pred_full_{var_label}",
             )
 
-    # retorna caso você use depois
     return levels, y_hat_new
 
 
