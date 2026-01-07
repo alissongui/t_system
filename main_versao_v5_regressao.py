@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import io
 from itertools import product
+import itertools
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -634,6 +635,185 @@ def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: s
         "ss_total": ss_total,
     }
     return anova_df, meta
+
+##
+def tabela_observado_predito_regressao(y, y_hat, residuals, var_label):
+    st.subheader("📊 Observado × Predito (Regressão)")
+
+    y_obs = np.asarray(y, dtype=float).ravel()
+    y_pred = np.asarray(y_hat, dtype=float).ravel()
+    resid = np.asarray(residuals, dtype=float).ravel()
+
+    df_pred = pd.DataFrame({
+        f"{var_label} (observado)": y_obs,
+        f"{var_label} (predito)": y_pred,
+        "Resíduo": resid,
+    })
+
+    st.dataframe(df_pred.round(4), use_container_width=True, hide_index=True)
+
+    # Download (mesmo padrão)
+    buf = io.StringIO()
+    df_pred.to_csv(buf, index=False)
+    st.download_button(
+        "📥 Baixar Observado × Predito (CSV)",
+        data=buf.getvalue().encode("utf-8"),
+        file_name=f"observado_predito_regressao_{var_label}.csv",
+        mime="text/csv",
+        key="dl_obs_pred_reg",
+    )
+
+
+def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
+    """
+    levels: {"A": "1", "B": "2", ...} com valores como strings
+    X_dum_cols: colunas do X_dum do ajuste (inclui 'Constante' + dummies)
+    """
+    # cria DF com 1 linha
+    row_df = pd.DataFrame([{f: str(levels[f]) for f in factor_cols}])
+
+    # dummies iguais às do treino (drop_first=True)
+    row_dum = pd.get_dummies(row_df, drop_first=True, dtype=float)
+
+    # garante colunas esperadas (sem a Constante ainda)
+    cols_no_const = [c for c in X_dum_cols if c != "Constante"]
+    for c in cols_no_const:
+        if c not in row_dum.columns:
+            row_dum[c] = 0.0
+
+    # remove colunas extras (se aparecerem)
+    row_dum = row_dum[cols_no_const]
+
+    # insere Constante
+    row_dum.insert(0, "Constante", 1.0)
+
+    X_new = row_dum.to_numpy(dtype=float)  # shape (1, p1)
+    return X_new
+
+def predicao_usuario_regressao(
+    df_plan, factor_cols, var_label,
+    beta_hat, XtX_inv, sigma2_hat, df_res, t_dist,
+    X_dum_cols
+):
+    st.markdown("---")
+    st.subheader("🧮 Predição (Regressão) para qualquer combinação")
+
+    # Entrada do usuário
+    levels = {}
+    for f in factor_cols:
+        lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z) if str(z).isdigit() else str(z))
+        levels[f] = st.selectbox(f"Nível para {f}", lvls, key=f"lvl_reg_{f}")
+
+    # Monta X_new coerente com o treino
+    X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
+
+    # Predição pontual
+    y_hat_new = float(X_new @ beta_hat)
+
+    # Intervalos (IC da média e IP de predição)
+    alpha = 0.05
+    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
+
+    # Var(ŷ) = sigma2 * x' (X'X)^-1 x
+    v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
+    se_mean = np.sqrt(max(v_mean, 0.0))
+
+    # IC da média
+    ic_low = y_hat_new - t_crit * se_mean if np.isfinite(t_crit) else np.nan
+    ic_high = y_hat_new + t_crit * se_mean if np.isfinite(t_crit) else np.nan
+
+    # Intervalo de predição: Var(y_new - ŷ) = sigma2 * (1 + x' (X'X)^-1 x)
+    se_pred = np.sqrt(max(float(sigma2_hat * (1.0 + (X_new @ XtX_inv @ X_new.T))), 0.0))
+    ip_low = y_hat_new - t_crit * se_pred if np.isfinite(t_crit) else np.nan
+    ip_high = y_hat_new + t_crit * se_pred if np.isfinite(t_crit) else np.nan
+
+    st.markdown("🔍 **Resultados da predição (regressão)**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(f"Predição para {var_label}", f"{y_hat_new:.4f}")
+
+    with col2:
+        # mostra IC/IP de forma compacta
+        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
+        ip_txt = f"[{ip_low:.4f}; {ip_high:.4f}]" if np.isfinite(ip_low) else "n/d"
+        st.markdown(
+            f"- **IC 95% (média)**: {ic_txt}\n"
+            f"- **IP 95% (predição)**: {ip_txt}"
+        )
+
+    # Exportação “do ponto”
+    df_point = pd.DataFrame([{
+        **{f: str(levels[f]) for f in factor_cols},
+        f"{var_label}_pred": y_hat_new,
+        "IC95_low": ic_low,
+        "IC95_high": ic_high,
+        "IP95_low": ip_low,
+        "IP95_high": ip_high,
+    }])
+
+    buf = io.StringIO()
+    df_point.to_csv(buf, index=False)
+    st.download_button(
+        "📥 Baixar predição do ponto (CSV)",
+        data=buf.getvalue().encode("utf-8"),
+        file_name=f"predicao_ponto_regressao_{var_label}.csv",
+        mime="text/csv",
+        key="dl_pred_ponto_reg",
+    )
+
+    return levels, y_hat_new
+
+
+def ponto_otimo_regressao(df_plan, factor_cols, var_label, beta_hat, X_dum_cols, maximize=True):
+    st.markdown("---")
+    st.subheader("⭐ Estimativa do ponto ótimo (Regressão)")
+
+    goal = st.radio(
+        "Objetivo:",
+        ["Maximizar", "Minimizar"],
+        index=0 if maximize else 1,
+        horizontal=True,
+        key="goal_opt_reg",
+    )
+    maximize = (goal == "Maximizar")
+
+    # níveis por fator
+    levels_by_factor = {}
+    for f in factor_cols:
+        lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z) if str(z).isdigit() else str(z))
+        levels_by_factor[f] = lvls
+
+    # gera combinações
+    combos = list(itertools.product(*[levels_by_factor[f] for f in factor_cols]))
+
+    rows = []
+    for combo in combos:
+        levels = {f: str(v) for f, v in zip(factor_cols, combo)}
+        X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
+        yhat = float(X_new @ beta_hat)
+        rows.append({**levels, f"{var_label}_pred": yhat})
+
+    df_grid = pd.DataFrame(rows)
+    df_grid = df_grid.sort_values(f"{var_label}_pred", ascending=not maximize).reset_index(drop=True)
+
+    st.caption("Ranking das combinações pela predição do modelo de regressão.")
+    st.dataframe(df_grid.head(10), use_container_width=True, hide_index=True)
+
+    # Download
+    buf = io.StringIO()
+    df_grid.to_csv(buf, index=False)
+    st.download_button(
+        "📥 Baixar ranking completo (CSV)",
+        data=buf.getvalue().encode("utf-8"),
+        file_name=f"ranking_ponto_otimo_regressao_{var_label}.csv",
+        mime="text/csv",
+        key="dl_rank_opt_reg",
+    )
+##
+
+
+
 
 
 def _predict_combo(level_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan):
@@ -4001,7 +4181,45 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         for r in bul_res:
             st.markdown(f"- {r}")
 
+        # =========================================
+        # 📈 Predições (modelo de regressão)
+        # =========================================
         st.markdown("---")
+        st.subheader("📈 Predições — Modelo de Regressão")
+        
+        # 1) Observado × Predito
+        tabela_observado_predito_regressao(
+            y=y,
+            y_hat=y_hat,
+            residuals=residuals,
+            var_label=var_label,
+        )
+        
+        # 2) Predição para qualquer combinação
+        X_dum_cols = list(X_dum.columns)  # IMPORTANTÍSSIMO (mesmo layout do treino)
+        
+        levels_user, yhat_user = predicao_usuario_regressao(
+            df_plan=df_plan,
+            factor_cols=factor_cols,
+            var_label=var_label,
+            beta_hat=beta_hat,
+            XtX_inv=XtX_inv,
+            sigma2_hat=sigma2_hat,
+            df_res=df_res,
+            t_dist=t_dist,
+            X_dum_cols=X_dum_cols,
+        )
+        
+        # 3) Ponto ótimo via regressão
+        ponto_otimo_regressao(
+            df_plan=df_plan,
+            factor_cols=factor_cols,
+            var_label=var_label,
+            beta_hat=beta_hat,
+            X_dum_cols=X_dum_cols,
+            maximize=True,  # ou False, se fizer sentido
+        )
+
 
     # =============================================
     # 🔖 Abas de resultados
