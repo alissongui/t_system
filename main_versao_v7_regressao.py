@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import io
 from itertools import product
+import itertools
 from datetime import datetime
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -635,6 +636,375 @@ def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: s
     }
     return anova_df, meta
 
+##
+def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
+    """
+    levels: {"A": "1", "B": "2", ...} com valores como strings
+    X_dum_cols: colunas do X_dum do ajuste (inclui 'Constante' + dummies)
+    """
+    # cria DF com 1 linha
+    row_df = pd.DataFrame([{f: str(levels[f]) for f in factor_cols}])
+
+    # dummies iguais às do treino (drop_first=True)
+    row_dum = pd.get_dummies(row_df, drop_first=True, dtype=float)
+
+    # garante colunas esperadas (sem a Constante ainda)
+    cols_no_const = [c for c in X_dum_cols if c != "Constante"]
+    for c in cols_no_const:
+        if c not in row_dum.columns:
+            row_dum[c] = 0.0
+
+    # remove colunas extras (se aparecerem)
+    row_dum = row_dum[cols_no_const]
+
+    # insere Constante
+    row_dum.insert(0, "Constante", 1.0)
+
+    X_new = row_dum.to_numpy(dtype=float)  # shape (1, p1)
+    return X_new
+
+def predicao_usuario_regressao(
+    df_plan, factor_cols, var_label,
+    beta_hat, XtX_inv, sigma2_hat, df_res, t_dist,
+    X_dum_cols,
+    key_prefix="reg_pred"   # <- evita conflito de keys em outras abas
+):
+    st.markdown("---")
+    st.subheader("🧮 Predição (Regressão) para qualquer combinação")
+
+    # ----------------- Entrada do usuário -----------------
+    levels = {}
+    for f in factor_cols:
+        lvls = sorted(
+            df_plan[f].astype(str).unique(),
+            key=lambda z: int(z) if str(z).isdigit() else str(z)
+        )
+        levels[f] = st.selectbox(
+            f"Nível para {f}",
+            lvls,
+            key=f"{key_prefix}_lvl_{var_label}_{f}",
+        )
+
+    # ----------------- Predição do ponto (ŷ) -----------------
+    X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
+    y_hat_new = float(X_new @ beta_hat)
+
+    # ----------------- IC 95% da média -----------------
+    alpha = 0.05
+    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
+
+    v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
+    se_mean = np.sqrt(max(v_mean, 0.0))
+
+    ic_low = y_hat_new - t_crit * se_mean if np.isfinite(t_crit) else np.nan
+    ic_high = y_hat_new + t_crit * se_mean if np.isfinite(t_crit) else np.nan
+
+    # ======================================================
+    # 🔍 Resultados em tela (SEU PADRÃO)
+    # ======================================================
+    st.markdown("🔍 **Resultados da predição (regressão)**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(f"Predição para {var_label}", f"{y_hat_new:.4f}")
+
+    with col2:
+        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
+        st.markdown(f"- **IC 95% (média)**: {ic_txt}")
+
+    st.caption(
+        "IC 95% (média): intervalo onde se espera que esteja a média verdadeira da resposta "
+        "para a combinação de níveis selecionada."
+    )
+
+    # ======================================================
+    # 📥 Exportações
+    # ======================================================
+    st.markdown("### 📥 Exportações de predição")
+
+    # 1) CSV — ensaio (predição atual)
+    df_one = pd.DataFrame([{
+        **{f: str(levels[f]) for f in factor_cols},
+        f"{var_label}_pred": y_hat_new,
+        "IC95_low": ic_low,
+        "IC95_high": ic_high,
+    }])
+
+    buf_one = io.StringIO()
+    df_one.to_csv(buf_one, index=False)
+    fname_one = f"predicao_ponto_regressao_{var_label}.csv"
+
+    # 2) CSV — matriz fatorial completa (opcional)
+    gerar_full = st.checkbox(
+        "Gerar matriz fatorial completa (recomendado apenas para número moderado de fatores/níveis)",
+        value=False,
+        key=f"{key_prefix}_chk_full_{var_label}",
+    )
+
+    buf_full = None
+    fname_full = f"predicao_regressao_todas_combinacoes_{var_label}.csv"
+
+    if gerar_full:
+        combos = _all_factorial_combinations(df_plan, factor_cols)
+
+        # trava de segurança (ajuste como quiser)
+        max_combos = 200_000
+        if len(combos) > max_combos:
+            st.warning(
+                f"⚠️ A matriz teria {len(combos):,} combinações (limite: {max_combos:,}). "
+                "Reduza níveis/fatores ou use Top-N."
+            )
+        else:
+            rows = []
+            for levels_i in combos:
+                X_i = _build_X_row_from_levels(levels_i, factor_cols, X_dum_cols)
+                y_i = float(X_i @ beta_hat)
+
+                v_i = float(sigma2_hat * (X_i @ XtX_inv @ X_i.T))
+                se_i = np.sqrt(max(v_i, 0.0))
+
+                ic_l = y_i - t_crit * se_i if np.isfinite(t_crit) else np.nan
+                ic_h = y_i + t_crit * se_i if np.isfinite(t_crit) else np.nan
+
+                rows.append({
+                    **levels_i,
+                    f"{var_label}_pred": y_i,
+                    "IC95_low": ic_l,
+                    "IC95_high": ic_h,
+                })
+
+            df_full = pd.DataFrame(rows).sort_values(f"{var_label}_pred", ascending=False).reset_index(drop=True)
+
+            buf_full = io.StringIO()
+            df_full.to_csv(buf_full, index=False)
+
+    # -------------------------
+    # Downloads em 2 colunas
+    # -------------------------
+    col_b1, col_b2 = st.columns(2)
+
+    with col_b1:
+        st.download_button(
+            "📥 Baixar ensaio (predição atual)",
+            data=buf_one.getvalue().encode("utf-8"),
+            file_name=fname_one,
+            mime="text/csv",
+            key=f"{key_prefix}_dl_pred_one_{var_label}",
+        )
+
+    with col_b2:
+        if buf_full is None:
+            st.download_button(
+                "📥 Baixar matriz fatorial completa (predições)",
+                data="Arquivo indisponível (marque a opção para gerar).".encode("utf-8"),
+                file_name=fname_full,
+                mime="text/plain",
+                key=f"{key_prefix}_dl_pred_full_disabled_{var_label}",
+                disabled=True,
+            )
+        else:
+            st.download_button(
+                "📥 Baixar matriz fatorial completa (predições)",
+                data=buf_full.getvalue().encode("utf-8"),
+                file_name=fname_full,
+                mime="text/csv",
+                key=f"{key_prefix}_dl_pred_full_{var_label}",
+            )
+
+    return levels, y_hat_new
+
+
+
+def _all_factorial_combinations(df_plan, factor_cols):
+    """Retorna lista de dicts com todas combinações de níveis existentes em df_plan."""
+    levels_by_factor = {}
+    for f in factor_cols:
+        lvls = sorted(
+            df_plan[f].astype(str).unique(),
+            key=lambda z: int(z) if str(z).isdigit() else str(z)
+        )
+        levels_by_factor[f] = lvls
+
+    combos = itertools.product(*[levels_by_factor[f] for f in factor_cols])
+
+    out = []
+    for combo in combos:
+        out.append({f: str(v) for f, v in zip(factor_cols, combo)})
+    return out
+
+
+
+def ponto_otimo_regressao(
+    df_plan,
+    factor_cols,
+    var_label,
+    beta_hat,
+    XtX_inv,
+    sigma2_hat,
+    df_res,
+    t_dist,
+    X_dum_cols,
+    per_factor_tables,
+    alpha=0.05,
+):
+    st.markdown("---")
+    st.subheader("⭐ Ponto ótimo do Taguchi + Predição (Regressão) com IC")
+
+    Y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
+    
+    # 1) Pega o ponto ótimo do Taguchi (via S/N médio por nível)
+    opt_levels = _opt_levels_from_tables(
+        factor_cols=factor_cols,
+        df_plan=df_plan,
+        per_factor_tables=per_factor_tables,
+    )
+
+    st.markdown("🔍 **Ponto ótimo (Taguchi)**")
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    for fac in factor_cols:
+        chips_html += f"""
+            <div style="padding:6px 12px; background:#ecfdf5;
+                        border-radius:999px; font-size:13px; color:#064e3b;
+                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels.get(fac, "-")}
+            </div>"""
+    chips_html += "</div>"
+    st.markdown(chips_html, unsafe_allow_html=True)
+
+    # 2) Predição via regressão nesse ponto ótimo
+    X_new = _build_X_row_from_levels(opt_levels, factor_cols, X_dum_cols)  # shape (1,p)
+    y_hat = float(X_new @ beta_hat)
+
+    st.session_state["Y_hat_reg_opt"] = float(np.asarray(y_hat).squeeze())
+
+    # 3) IC 95% da média e IP 95% individual
+    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if (df_res > 0) else np.nan
+
+    v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
+    se_mean = float(np.sqrt(max(v_mean, 0.0)))
+
+    ic_low = y_hat - t_crit * se_mean if np.isfinite(t_crit) else np.nan
+    ic_high = y_hat + t_crit * se_mean if np.isfinite(t_crit) else np.nan
+
+    st.divider()
+    st.markdown("🔍 **Predição no ponto ótimo (Regressão)**")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Regressão) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat) else f"{y_hat:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
+        st.markdown(f"- **IC {int((1-alpha)*100)}% (média)**: {ic_txt}")
+
+
+    # 4) Exportação CSV
+    row = {fac: str(opt_levels.get(fac, "-")) for fac in factor_cols}
+    row.update({
+        f"{var_label}_pred_reg": (np.nan if np.isnan(y_hat) else round(y_hat, 6)),
+        "IC95_low": (np.nan if np.isnan(ic_low) else round(ic_low, 6)),
+        "IC95_high": (np.nan if np.isnan(ic_high) else round(ic_high, 6)),
+    })
+
+
+    df_out = pd.DataFrame([row])
+    buf = io.StringIO()
+    df_out.to_csv(buf, index=False)
+
+    st.download_button(
+        "📥 Baixar ponto ótimo (Taguchi) + predição regressão + intervalos (CSV)",
+        data=buf.getvalue().encode("utf-8"),
+        file_name=f"ponto_otimo_taguchi_pred_reg_{var_label}.csv",
+        mime="text/csv",
+        key="dl_opt_taguchi_reg",
+    )
+    st.markdown("---")
+
+def render_predicoes_otimo_reg_vs_taguchi_sem_ic(
+    var_label,
+):
+
+
+    # lê valores já calculados (sem recalcular)
+    y_hat_reg = st.session_state.get("Y_hat_reg_opt", np.nan)
+    y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
+
+    # garante escalar float
+    try:
+        y_hat_reg = float(np.asarray(y_hat_reg).squeeze())
+    except Exception:
+        y_hat_reg = np.nan
+
+    try:
+        y_hat_taguchi = float(np.asarray(y_hat_taguchi).squeeze())
+    except Exception:
+        y_hat_taguchi = np.nan
+
+    st.markdown("🔍 **Predições no ponto ótimo**")
+
+    col1, col2 = st.columns(2)
+
+    # --------- REGRESSÃO ---------
+    with col1:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Regressão) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat_reg) else f"{y_hat_reg:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # --------- TAGUCHI ---------
+    with col2:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Taguchi) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat_taguchi) else f"{y_hat_taguchi:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+##
+
+
+
+
 
 def _predict_combo(level_dict, mean_y, df_effects, sn_col, per_factor_tables, factor_cols, df_plan):
     # Y
@@ -830,6 +1200,11 @@ def estimativas_ponto_otimo(
                 Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
             else:
                 Y_hat_taguchi = float("nan")
+
+            # --- guardar para reuso na aba regressão (sem recalcular) ---
+            st.session_state["Y_hat_taguchi_opt"] = Y_hat_taguchi
+            st.session_state["opt_levels_taguchi"] = opt_levels
+
 
         except Exception as e:
             st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
@@ -2910,7 +3285,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     
 
     
-    def regressao_multipla():
+    def regressao_multipla(per_factor_tables):
         st.subheader("📉 Regressão múltipla")
  
         st.caption(
@@ -3587,7 +3962,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         df_resid = pd.DataFrame({
             "Experimento": df_plan["Experimento"].values if "Experimento" in df_plan.columns else np.arange(1, len(y_obs) + 1),
             f"{var_label} (observado)": y_obs,
-            f"{var_label} (ajustado)": y_fit,
+            f"{var_label} (predito)": y_fit,
             "Resíduo": resid
         })
         
@@ -4001,7 +4376,39 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         for r in bul_res:
             st.markdown(f"- {r}")
 
-        st.markdown("---")
+        
+        # 2) Predição para qualquer combinação
+        X_dum_cols = list(X_dum.columns)  # IMPORTANTÍSSIMO (mesmo layout do treino)
+        
+        levels_user, yhat_user = predicao_usuario_regressao(
+            df_plan=df_plan,
+            factor_cols=factor_cols,
+            var_label=var_label,
+            beta_hat=beta_hat,
+            XtX_inv=XtX_inv,
+            sigma2_hat=sigma2_hat,
+            df_res=df_res,
+            t_dist=t_dist,
+            X_dum_cols=X_dum_cols,
+        )
+        
+        # 3) Ponto ótimo via regressão
+        ponto_otimo_regressao(
+            df_plan=df_plan,
+            factor_cols=factor_cols,
+            var_label=var_label,
+            beta_hat=beta_hat,
+            XtX_inv=XtX_inv,
+            sigma2_hat=sigma2_hat,
+            df_res=df_res,
+            t_dist=t_dist,
+            X_dum_cols=X_dum_cols,
+            per_factor_tables=per_factor_tables,
+        )
+
+        render_predicoes_otimo_reg_vs_taguchi_sem_ic(var_label)
+    
+
 
     # =============================================
     # 🔖 Abas de resultados
@@ -4081,7 +4488,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         anova_taguchi()
 
     with tab_reg:
-        regressao_multipla()
+        regressao_multipla(per_factor_tables=per_factor)
 
 
 

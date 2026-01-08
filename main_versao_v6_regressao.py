@@ -834,51 +834,172 @@ def _all_factorial_combinations(df_plan, factor_cols):
 
 
 
-def ponto_otimo_regressao(df_plan, factor_cols, var_label, beta_hat, X_dum_cols, maximize=True):
+def ponto_otimo_regressao(
+    df_plan,
+    factor_cols,
+    var_label,
+    beta_hat,
+    XtX_inv,
+    sigma2_hat,
+    df_res,
+    t_dist,
+    X_dum_cols,
+    per_factor_tables,
+    alpha=0.05,
+):
     st.markdown("---")
-    st.subheader("⭐ Estimativa do ponto ótimo (Regressão)")
+    st.subheader("⭐ Ponto ótimo do Taguchi + Predição (Regressão) com IC")
 
-    goal = st.radio(
-        "Objetivo:",
-        ["Maximizar", "Minimizar"],
-        index=0 if maximize else 1,
-        horizontal=True,
-        key="goal_opt_reg",
+    Y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
+    
+    # 1) Pega o ponto ótimo do Taguchi (via S/N médio por nível)
+    opt_levels = _opt_levels_from_tables(
+        factor_cols=factor_cols,
+        df_plan=df_plan,
+        per_factor_tables=per_factor_tables,
     )
-    maximize = (goal == "Maximizar")
 
-    # níveis por fator
-    levels_by_factor = {}
-    for f in factor_cols:
-        lvls = sorted(df_plan[f].astype(str).unique(), key=lambda z: int(z) if str(z).isdigit() else str(z))
-        levels_by_factor[f] = lvls
+    st.markdown("🔍 **Ponto ótimo (Taguchi)**")
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    for fac in factor_cols:
+        chips_html += f"""
+            <div style="padding:6px 12px; background:#ecfdf5;
+                        border-radius:999px; font-size:13px; color:#064e3b;
+                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels.get(fac, "-")}
+            </div>"""
+    chips_html += "</div>"
+    st.markdown(chips_html, unsafe_allow_html=True)
 
-    # gera combinações
-    combos = list(itertools.product(*[levels_by_factor[f] for f in factor_cols]))
+    # 2) Predição via regressão nesse ponto ótimo
+    X_new = _build_X_row_from_levels(opt_levels, factor_cols, X_dum_cols)  # shape (1,p)
+    y_hat = float(X_new @ beta_hat)
 
-    rows = []
-    for combo in combos:
-        levels = {f: str(v) for f, v in zip(factor_cols, combo)}
-        X_new = _build_X_row_from_levels(levels, factor_cols, X_dum_cols)
-        yhat = float(X_new @ beta_hat)
-        rows.append({**levels, f"{var_label}_pred": yhat})
+    st.session_state["Y_hat_reg_opt"] = float(np.asarray(y_hat).squeeze())
 
-    df_grid = pd.DataFrame(rows)
-    df_grid = df_grid.sort_values(f"{var_label}_pred", ascending=not maximize).reset_index(drop=True)
+    # 3) IC 95% da média e IP 95% individual
+    t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if (df_res > 0) else np.nan
 
-    st.caption("Ranking das combinações pela predição do modelo de regressão.")
-    st.dataframe(df_grid.head(10), use_container_width=True, hide_index=True)
+    v_mean = float(sigma2_hat * (X_new @ XtX_inv @ X_new.T))
+    se_mean = float(np.sqrt(max(v_mean, 0.0)))
 
-    # Download
+    ic_low = y_hat - t_crit * se_mean if np.isfinite(t_crit) else np.nan
+    ic_high = y_hat + t_crit * se_mean if np.isfinite(t_crit) else np.nan
+
+    st.divider()
+    st.markdown("🔍 **Predição no ponto ótimo (Regressão)**")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Regressão) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat) else f"{y_hat:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        ic_txt = f"[{ic_low:.4f}; {ic_high:.4f}]" if np.isfinite(ic_low) else "n/d"
+        st.markdown(f"- **IC {int((1-alpha)*100)}% (média)**: {ic_txt}")
+
+
+    # 4) Exportação CSV
+    row = {fac: str(opt_levels.get(fac, "-")) for fac in factor_cols}
+    row.update({
+        f"{var_label}_pred_reg": (np.nan if np.isnan(y_hat) else round(y_hat, 6)),
+        "IC95_low": (np.nan if np.isnan(ic_low) else round(ic_low, 6)),
+        "IC95_high": (np.nan if np.isnan(ic_high) else round(ic_high, 6)),
+    })
+
+
+    df_out = pd.DataFrame([row])
     buf = io.StringIO()
-    df_grid.to_csv(buf, index=False)
+    df_out.to_csv(buf, index=False)
+
     st.download_button(
-        "📥 Baixar ranking completo (CSV)",
+        "📥 Baixar ponto ótimo (Taguchi) + predição regressão + intervalos (CSV)",
         data=buf.getvalue().encode("utf-8"),
-        file_name=f"ranking_ponto_otimo_regressao_{var_label}.csv",
+        file_name=f"ponto_otimo_taguchi_pred_reg_{var_label}.csv",
         mime="text/csv",
-        key="dl_rank_opt_reg",
+        key="dl_opt_taguchi_reg",
     )
+    st.markdown("---")
+
+def render_predicoes_otimo_reg_vs_taguchi_sem_ic(
+    var_label,
+):
+
+
+    # lê valores já calculados (sem recalcular)
+    y_hat_reg = st.session_state.get("Y_hat_reg_opt", np.nan)
+    y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
+
+    # garante escalar float
+    try:
+        y_hat_reg = float(np.asarray(y_hat_reg).squeeze())
+    except Exception:
+        y_hat_reg = np.nan
+
+    try:
+        y_hat_taguchi = float(np.asarray(y_hat_taguchi).squeeze())
+    except Exception:
+        y_hat_taguchi = np.nan
+
+    st.markdown("🔍 **Predições no ponto ótimo**")
+
+    col1, col2 = st.columns(2)
+
+    # --------- REGRESSÃO ---------
+    with col1:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Regressão) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat_reg) else f"{y_hat_reg:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # --------- TAGUCHI ---------
+    with col2:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Taguchi) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat_taguchi) else f"{y_hat_taguchi:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
 ##
 
 
@@ -1079,6 +1200,11 @@ def estimativas_ponto_otimo(
                 Y_hat_taguchi = float(np.sum(Y_best_means) - (k - 1) * Y_bar)
             else:
                 Y_hat_taguchi = float("nan")
+
+            # --- guardar para reuso na aba regressão (sem recalcular) ---
+            st.session_state["Y_hat_taguchi_opt"] = Y_hat_taguchi
+            st.session_state["opt_levels_taguchi"] = opt_levels
+
 
         except Exception as e:
             st.warning(f"Não foi possível calcular a previsão de {var_label}: {e}")
@@ -3159,7 +3285,7 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     
 
     
-    def regressao_multipla():
+    def regressao_multipla(per_factor_tables):
         st.subheader("📉 Regressão múltipla")
  
         st.caption(
@@ -4272,9 +4398,16 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             factor_cols=factor_cols,
             var_label=var_label,
             beta_hat=beta_hat,
+            XtX_inv=XtX_inv,
+            sigma2_hat=sigma2_hat,
+            df_res=df_res,
+            t_dist=t_dist,
             X_dum_cols=X_dum_cols,
-            maximize=True,  # ou False, se fizer sentido
+            per_factor_tables=per_factor_tables,
         )
+
+        render_predicoes_otimo_reg_vs_taguchi_sem_ic(var_label)
+    
 
 
     # =============================================
@@ -4355,7 +4488,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         anova_taguchi()
 
     with tab_reg:
-        regressao_multipla()
+        regressao_multipla(per_factor_tables=per_factor)
 
 
 
