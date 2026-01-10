@@ -41,7 +41,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão 25.03
+                Versão 26.prv08
             </p>
         </div>
         """,
@@ -1015,6 +1015,7 @@ def render_confirmacao_regressao_sem_upload(
         "e compara a **média observada** com o **valor previsto pela regressão** no mesmo ponto."
     )
 
+    st.markdown("---")
     st.markdown("**1️⃣ Escolha o ponto de análise do ensaio de confirmação**")
     
     if "modo_conf_prev_conf_reg" not in st.session_state:
@@ -1022,10 +1023,11 @@ def render_confirmacao_regressao_sem_upload(
     
     modo_conf = st.radio(
         "Selecione a combinação de níveis a ser utilizada:",
-        ("Ponto ótimo (recomendado)", "Ponto do ensaio (carregado no Taguchi)"),
+        ("Ponto ótimo (recomendado)", "Outra combinação de níveis"),
         index=0,
         key="modo_conf_conf_reg",
     )
+
 
     
     # ao mudar o modo, limpa estados locais desta seção (apenas chaves confreg_)
@@ -1045,23 +1047,32 @@ def render_confirmacao_regressao_sem_upload(
             "Vá na aba **Taguchi → 🧪 Ensaios de confirmação**, faça o upload uma vez, e volte aqui."
         )
         return
+
     
     # escolhe o ponto (níveis) conforme o modo
-    if modo_conf == "Ponto do ensaio (carregado no Taguchi)":
-        conf_levels = st.session_state.get(f"conf_levels__{var_label}", None)
+    conf_levels = {}
     
-        if conf_levels is None:
-            st.info(
-                "⏳ Não encontrei os níveis do ensaio carregado no Taguchi.\n\n"
-                "Vá na aba **Taguchi → 🧪 Ensaios de confirmação**, refaça a seleção do ponto e volte aqui."
-            )
-            return
+    if modo_conf == "Ponto ótimo (recomendado)":
+        opt_levels = _opt_levels_from_tables(factor_cols, df_plan, per_factor_tables)
+    
+        lista_niveis = []
+        for fac in factor_cols:
+            default_lvl = str(sorted(df_plan[fac].astype(str).unique())[0])
+            conf_levels[fac] = str(opt_levels.get(fac, default_lvl))
+        st.markdown("\n".join(lista_niveis))
     
     else:
-        # ponto ótimo (Taguchi) usando os argumentos já recebidos
-        opt_levels = _opt_levels_from_tables(factor_cols, df_plan, per_factor_tables)
-        conf_levels = {fac: str(opt_levels.get(fac, "-")) for fac in factor_cols}
-
+        st.markdown("Selecione manualmente os níveis utilizados no ensaio de confirmação:")
+        for fac in factor_cols:
+            niveis = sorted(
+                df_plan[fac].astype(str).unique(),
+                key=lambda z: int(z) if str(z).isdigit() else str(z),
+            )
+            conf_levels[fac] = st.selectbox(
+                f"Nível para {fac} no ensaio de confirmação:",
+                niveis,
+                key=f"confreg_{fac}",
+            )
 
 
 
@@ -1074,6 +1085,24 @@ def render_confirmacao_regressao_sem_upload(
 
     y_obs = float(np.mean(y_conf_vals))
 
+    st.markdown("---")
+    st.markdown("**2️⃣ Estatísticas descritivas do ensaio de confirmação**")
+
+    st.caption(
+        f"Réplicas: **{y_conf_vals.size}** | "
+        f"Mín: **{np.min(y_conf_vals):.4f}** | "
+        f"Máx: **{np.max(y_conf_vals):.4f}** | "
+        f"Desvio-padrão: **{np.std(y_conf_vals, ddof=1):.4f}**"
+    )
+    
+    st.markdown("---")
+    st.markdown("**3️⃣ Comparação entre observado e previsto (Regressão)**")
+
+    if any(str(conf_levels.get(f, "-")) == "-" for f in factor_cols):
+        st.warning("⚠️ Há fator(es) sem nível definido. Ajuste os níveis para calcular a predição.")
+        return
+
+
     # predição da regressão no mesmo ponto do ensaio (conf_levels)
     try:
         X_new = _build_X_row_from_levels(conf_levels, factor_cols, X_dum_cols)
@@ -1083,10 +1112,27 @@ def render_confirmacao_regressao_sem_upload(
         st.warning(f"Não foi possível calcular a predição da regressão no ponto do ensaio: {e}")
 
     err_abs = abs(y_obs - y_hat_reg) if np.isfinite(y_hat_reg) else np.nan
-    err_rel = (100.0 * err_abs / abs(y_hat_reg)) if (np.isfinite(err_abs) and np.isfinite(y_hat_reg) and y_hat_reg != 0.0) else np.nan
+    den = abs(y_hat_reg)
+    err_rel = (100.0 * err_abs / den) if (np.isfinite(err_abs) and np.isfinite(den) and den > 1e-12) else np.nan
 
-    st.markdown("**Ponto do ensaio (reaproveitado do Taguchi):**")
-    st.markdown("\n".join([f"- **{f}**: nível `{conf_levels.get(f, '-')}`" for f in factor_cols]))
+    
+    titulo_ponto = "Ponto ótimo (recomendado)" if modo_conf == "Ponto ótimo (recomendado)" else "Ponto manual (outra combinação)"
+    st.markdown(f"🔎 **{titulo_ponto}**")
+    
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    for fac in factor_cols:
+        chips_html += f"""
+            <div style="padding:6px 12px; background:#ecfdf5;
+                        border-radius:999px; font-size:13px; color:#064e3b;
+                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                <span style="font-weight:600; color:#065f46;">{fac}:</span> {conf_levels.get(fac, "-")}
+            </div>"""
+    chips_html += "</div>"
+    st.markdown(chips_html, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)   # pequeno 
+
+
 
     col1, col2 = st.columns(2)
 

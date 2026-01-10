@@ -41,7 +41,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão 25.03
+                Versão 26.prv08
             </p>
         </div>
         """,
@@ -1000,6 +1000,182 @@ def render_predicoes_otimo_reg_vs_taguchi_sem_ic(
 
     st.markdown("---")
 
+def render_confirmacao_regressao_sem_upload(
+    factor_cols,
+    df_plan,
+    per_factor_tables,
+    var_label,
+    beta_hat,
+    X_dum_cols,
+):
+    st.subheader("🧪 Ensaio de confirmação (Regressão)")
+
+    st.caption(
+        "Esta seção reutiliza o **mesmo ensaio de confirmação carregado na aba Taguchi** "
+        "e compara a **média observada** com o **valor previsto pela regressão** no mesmo ponto."
+    )
+
+    st.markdown("---")
+    st.markdown("**1️⃣ Escolha o ponto de análise do ensaio de confirmação**")
+    
+    if "modo_conf_prev_conf_reg" not in st.session_state:
+        st.session_state["modo_conf_prev_conf_reg"] = "Ponto ótimo (recomendado)"
+    
+    modo_conf = st.radio(
+        "Selecione a combinação de níveis a ser utilizada:",
+        ("Ponto ótimo (recomendado)", "Outra combinação de níveis"),
+        index=0,
+        key="modo_conf_conf_reg",
+    )
+
+
+    
+    # ao mudar o modo, limpa estados locais desta seção (apenas chaves confreg_)
+    if st.session_state["modo_conf_prev_conf_reg"] != modo_conf:
+        for k in list(st.session_state.keys()):
+            if k.startswith("confreg_"):
+                st.session_state.pop(k, None)
+        st.session_state["modo_conf_prev_conf_reg"] = modo_conf
+
+
+    # valores observados do ensaio (sempre vêm do Taguchi; sem upload aqui)
+    y_conf_vals = st.session_state.get(f"conf_y_vals__{var_label}", None)
+    
+    if y_conf_vals is None:
+        st.info(
+            "⏳ Nenhum ensaio de confirmação encontrado para esta variável.\n\n"
+            "Vá na aba **Taguchi → 🧪 Ensaios de confirmação**, faça o upload uma vez, e volte aqui."
+        )
+        return
+
+    
+    # escolhe o ponto (níveis) conforme o modo
+    conf_levels = {}
+    
+    if modo_conf == "Ponto ótimo (recomendado)":
+        opt_levels = _opt_levels_from_tables(factor_cols, df_plan, per_factor_tables)
+    
+        lista_niveis = []
+        for fac in factor_cols:
+            default_lvl = str(sorted(df_plan[fac].astype(str).unique())[0])
+            conf_levels[fac] = str(opt_levels.get(fac, default_lvl))
+        st.markdown("\n".join(lista_niveis))
+    
+    else:
+        st.markdown("Selecione manualmente os níveis utilizados no ensaio de confirmação:")
+        for fac in factor_cols:
+            niveis = sorted(
+                df_plan[fac].astype(str).unique(),
+                key=lambda z: int(z) if str(z).isdigit() else str(z),
+            )
+            conf_levels[fac] = st.selectbox(
+                f"Nível para {fac} no ensaio de confirmação:",
+                niveis,
+                key=f"confreg_{fac}",
+            )
+
+
+
+    y_conf_vals = np.asarray(y_conf_vals, dtype=float)
+    y_conf_vals = y_conf_vals[~np.isnan(y_conf_vals)]
+
+    if y_conf_vals.size == 0:
+        st.warning("⚠️ O ensaio de confirmação salvo não contém valores numéricos válidos.")
+        return
+
+    y_obs = float(np.mean(y_conf_vals))
+
+    st.markdown("---")
+    st.markdown("**2️⃣ Estatísticas descritivas do ensaio de confirmação**")
+
+    st.caption(
+        f"Réplicas: **{y_conf_vals.size}** | "
+        f"Mín: **{np.min(y_conf_vals):.4f}** | "
+        f"Máx: **{np.max(y_conf_vals):.4f}** | "
+        f"Desvio-padrão: **{np.std(y_conf_vals, ddof=1):.4f}**"
+    )
+    
+    st.markdown("---")
+    st.markdown("**3️⃣ Comparação entre observado e previsto (Regressão)**")
+
+    if any(str(conf_levels.get(f, "-")) == "-" for f in factor_cols):
+        st.warning("⚠️ Há fator(es) sem nível definido. Ajuste os níveis para calcular a predição.")
+        return
+
+
+    # predição da regressão no mesmo ponto do ensaio (conf_levels)
+    try:
+        X_new = _build_X_row_from_levels(conf_levels, factor_cols, X_dum_cols)
+        y_hat_reg = float(X_new @ beta_hat)
+    except Exception as e:
+        y_hat_reg = float("nan")
+        st.warning(f"Não foi possível calcular a predição da regressão no ponto do ensaio: {e}")
+
+    err_abs = abs(y_obs - y_hat_reg) if np.isfinite(y_hat_reg) else np.nan
+    den = abs(y_hat_reg)
+    err_rel = (100.0 * err_abs / den) if (np.isfinite(err_abs) and np.isfinite(den) and den > 1e-12) else np.nan
+
+    
+    titulo_ponto = "Ponto ótimo (recomendado)" if modo_conf == "Ponto ótimo (recomendado)" else "Ponto manual (outra combinação)"
+    st.markdown(f"🔎 **{titulo_ponto}**")
+    
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    for fac in factor_cols:
+        chips_html += f"""
+            <div style="padding:6px 12px; background:#ecfdf5;
+                        border-radius:999px; font-size:13px; color:#064e3b;
+                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                <span style="font-weight:600; color:#065f46;">{fac}:</span> {conf_levels.get(fac, "-")}
+            </div>"""
+    chips_html += "</div>"
+    st.markdown(chips_html, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)   # pequeno 
+
+
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#ecfdf5;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#065f46; font-weight:600; margin-bottom:4px;">
+                  Valor previsto (Regressão) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#064e3b;">
+                  {("n/d" if np.isnan(y_hat_reg) else f"{y_hat_reg:.4f}")}
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        st.markdown(
+            f"""
+            <div style="text-align:center; margin: 14px 0 8px;">
+              <div style="display:inline-block; padding:12px 22px; background:#eff6ff;
+                          border-radius:10px; box-shadow:0 3px 12px rgba(0,0,0,0.12);">
+                <div style="font-size:14px; color:#1d4ed8; font-weight:600; margin-bottom:4px;">
+                  Valor observado (média) — {var_label}
+                </div>
+                <div style="font-size:26px; font-weight:700; color:#1e3a8a;">
+                  {f"{y_obs:.4f}"}
+                </div>
+                <div style="margin-top:10px; font-size:13px; color:#111827;">
+                  Erro absoluto: <b>{("n/d" if np.isnan(err_abs) else f"{err_abs:.4f}")}</b><br/>
+                  Erro relativo: <b>{("n/d" if np.isnan(err_rel) else f"{err_rel:.2f}%")}</b>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown("---")
 ##
 
 
@@ -1432,6 +1608,12 @@ def render_ensaio_confirmacao(
                     st.success(f"✅ {len(y_conf_vals)} valores de {var_label} carregados para o ensaio de confirmação.")
                     st.dataframe(pd.DataFrame({var_label: y_conf_vals}), use_container_width=True, hide_index=True)
                     st.info(f"A razão S/N do ensaio de confirmação será calculada com o mesmo tipo: **{sn_tipo}**.")
+
+                    # ✅ salvar para ser reutilizado na aba Regressão (sem novo upload)
+                    st.session_state["conf_last_var_label"] = var_label
+                    st.session_state[f"conf_y_vals__{var_label}"] = y_conf_vals
+                    st.session_state[f"conf_levels__{var_label}"] = conf_levels
+
 
         except Exception as e:
             st.error(f"❌ Erro ao processar o arquivo de confirmação: {e}")
@@ -4407,6 +4589,18 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         )
 
         render_predicoes_otimo_reg_vs_taguchi_sem_ic(var_label)
+
+        render_confirmacao_regressao_sem_upload(
+            factor_cols=factor_cols,
+            df_plan=df_plan,
+            per_factor_tables=per_factor_tables,
+            var_label=var_label,
+            beta_hat=beta_hat,
+            X_dum_cols=X_dum_cols,
+        )
+
+
+        
     
 
 
