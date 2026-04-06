@@ -41,7 +41,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão 26.prv08
+                Versão v03.2026
             </p>
         </div>
         """,
@@ -637,6 +637,117 @@ def compute_anova_sn(df_effects: pd.DataFrame, factor_cols: list[str], sn_col: s
     return anova_df, meta
 
 ##
+@st.cache_data(show_spinner=False)
+def compute_anova_sn_cached(df_effects, factor_cols_tuple, sn_col):
+    return compute_anova_sn(
+        df_effects=df_effects,
+        factor_cols=list(factor_cols_tuple),
+        sn_col=sn_col,
+    )
+###
+@st.cache_data(show_spinner=False)
+def compute_regressao_multipla_cached(df_plan, factor_cols_tuple, mean_y, has_scipy=True):
+    """
+    Ajuste da regressão múltipla com cache.
+    Retorna tudo o que a aba de regressão precisa para exibir resultados.
+    """
+    factor_cols = list(factor_cols_tuple)
+
+    # y (resposta): valores do problema
+    y = np.asarray(mean_y, dtype=float).reshape(-1, 1)
+    n = y.shape[0]
+
+    # X: fatores (dummies para categóricos), com intercepto
+    X_raw = df_plan[factor_cols].copy()
+    X_num = X_raw.apply(pd.to_numeric, errors="ignore")
+    X_dum = pd.get_dummies(X_num, drop_first=True, dtype=float)
+    X_dum.insert(0, "Constante", 1.0)
+
+    X = X_dum.to_numpy(dtype=float)
+    terms = list(X_dum.columns)
+
+    p1 = X.shape[1]
+    p = p1 - 1
+    df_res = n - p1
+
+    # MQO
+    XtX = X.T @ X
+    XtX_inv = np.linalg.pinv(XtX)
+    beta_hat = XtX_inv @ (X.T @ y)
+    beta = beta_hat.ravel()
+    y_hat = X @ beta_hat
+    eps_hat = y - y_hat
+
+    SQ_res = float((eps_hat.T @ eps_hat)[0, 0])
+    sigma2_hat = SQ_res / df_res if df_res > 0 else np.nan
+
+    # Variância / EP
+    Var_beta = sigma2_hat * XtX_inv
+    se = np.sqrt(np.maximum(np.diag(Var_beta), 0.0)).reshape(-1, 1)
+
+    # Estatística t e p-valor
+    t_vals = (beta_hat / se).ravel()
+
+    if has_scipy and t_dist is not None:
+        p_vals = np.array([
+            2 * (1 - t_dist.cdf(abs(tv), df=df_res)) if (df_res > 0 and np.isfinite(tv)) else np.nan
+            for tv in t_vals
+        ], dtype=float)
+        alpha = 0.05
+        t_crit = t_dist.ppf(1 - alpha/2, df=df_res) if df_res > 0 else np.nan
+    else:
+        p_vals = np.full_like(t_vals, np.nan, dtype=float)
+        t_crit = np.nan
+
+    ci_low = (beta_hat - t_crit * se).ravel()
+    ci_high = (beta_hat + t_crit * se).ravel()
+
+    # VIF
+    vif = [""] * p1
+    if p >= 1:
+        for j in range(1, p1):
+            xj = X[:, [j]]
+            X_others = np.delete(X, j, axis=1)
+
+            XtXo = X_others.T @ X_others
+            XtXo_inv = np.linalg.pinv(XtXo)
+            bj = XtXo_inv @ (X_others.T @ xj)
+            xj_hat = X_others @ bj
+
+            num = float(((xj - xj_hat).T @ (xj - xj_hat))[0, 0])
+            den = float(((xj - np.mean(xj)).T @ (xj - np.mean(xj)))[0, 0])
+            R2j = 1 - (num / den) if den > 0 else 0.0
+
+            vif_j = 1.0 / (1.0 - R2j) if (1.0 - R2j) > 1e-12 else np.inf
+            vif[j] = float(vif_j)
+
+    return {
+        "y": y,
+        "n": n,
+        "X_dum": X_dum,
+        "X": X,
+        "terms": terms,
+        "p1": p1,
+        "p": p,
+        "df_res": df_res,
+        "XtX_inv": XtX_inv,
+        "beta_hat": beta_hat,
+        "beta": beta,
+        "y_hat": y_hat,
+        "eps_hat": eps_hat,
+        "SQ_res": SQ_res,
+        "sigma2_hat": sigma2_hat,
+        "Var_beta": Var_beta,
+        "se": se,
+        "t_vals": t_vals,
+        "p_vals": p_vals,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "vif": vif,
+    }
+
+##
+
 def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
     """
     levels: {"A": "1", "B": "2", ...} com valores como strings
@@ -848,7 +959,7 @@ def ponto_otimo_regressao(
     alpha=0.05,
 ):
     st.markdown("---")
-    st.subheader("⭐ Ponto ótimo do Taguchi + Predição (Regressão) com IC")
+    st.subheader("⭐ Ponto ótimo do Taguchi + Predição via Regressão com Intervalo de Confiança (IC)")
 
     Y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
     
@@ -859,14 +970,16 @@ def ponto_otimo_regressao(
         per_factor_tables=per_factor_tables,
     )
 
-    st.markdown("🔍 **Ponto ótimo (Taguchi)**")
-    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    st.markdown("⭐ **Configuração ótima dos fatores (Taguchi)**")
+    
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:14px;'>"
     for fac in factor_cols:
         chips_html += f"""
-            <div style="padding:6px 12px; background:#ecfdf5;
-                        border-radius:999px; font-size:13px; color:#064e3b;
-                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels.get(fac, "-")}
+            <div style="padding:12px 20px; background:#ecfdf5;
+                        border-radius:999px; font-size:20px; color:#064e3b;
+                        box-shadow:0 4px 14px rgba(0,0,0,0.14);">
+                <span style="font-weight:600; color:#065f46; font-size:18px;">{fac}:</span>
+                <span style="font-weight:700; font-size:24px;">{opt_levels.get(fac, "-")}</span>
             </div>"""
     chips_html += "</div>"
     st.markdown(chips_html, unsafe_allow_html=True)
@@ -1326,17 +1439,30 @@ def estimativas_ponto_otimo(
             opt_levels[fac] = "-"
             selected_level_means.append(np.nan)
 
-    st.markdown("🔍 **Ponto ótimo**")
-
-    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    st.markdown("⭐ **Configuração ótima dos fatores**")
+    
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:14px;'>"
+    
     for fac in factor_cols:
         chips_html += f"""
-            <div style="padding:6px 12px; background:#ecfdf5;
-                        border-radius:999px; font-size:13px; color:#064e3b;
-                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels[fac]}
+            <div style="
+                padding:12px 20px; 
+                background:#ecfdf5;
+                border-radius:999px;
+                font-size:20px;
+                color:#064e3b;
+                box-shadow:0 4px 14px rgba(0,0,0,0.14);
+            ">
+                <span style="font-weight:600; color:#065f46; font-size:18px;">
+                    {fac}:
+                </span> 
+                <span style="font-weight:700; font-size:24px;">
+                    {opt_levels.get(fac, "-")}
+                </span>
             </div>"""
+            
     chips_html += "</div>"
+
     st.markdown(chips_html, unsafe_allow_html=True)
 
     st.divider()
@@ -1488,18 +1614,42 @@ def compute_snr(vals, sn_tipo, nominal_target=None):
 
 
 def _opt_levels_from_tables(factor_cols, df_plan, per_factor_tables):
-    """Extrai níveis ótimos (1 por fator) a partir de per_factor_tables (S/N médio por nível)."""
+    """
+    Extrai níveis ótimos (1 por fator) a partir de per_factor_tables.
+
+    Aceita dois formatos:
+    1) DataFrame com colunas: ["Nível", "S/N médio (dB)"]
+    2) DataFrame indexado pelos níveis, com coluna: ["S/N médio"]
+    """
     opt_levels = {}
+
     for fac in factor_cols:
         fac_df = per_factor_tables.get(fac, pd.DataFrame())
         lvl_fallback = str(sorted(df_plan[fac].astype(str).unique())[0])
 
-        if (not fac_df.empty) and {"Nível", "S/N médio (dB)"}.issubset(set(fac_df.columns)) and (not fac_df["S/N médio (dB)"].isna().all()):
-            vmax = float(fac_df["S/N médio (dB)"].max())
-            best_levels = fac_df.loc[fac_df["S/N médio (dB)"] == vmax, "Nível"].astype(str).tolist()
-            opt_levels[fac] = best_levels[0] if best_levels else lvl_fallback
+        if fac_df.empty:
+            opt_levels[fac] = lvl_fallback
+            continue
+
+        # ----- formato 1: colunas explícitas -----
+        if {"Nível", "S/N médio (dB)"}.issubset(set(fac_df.columns)):
+            serie = fac_df.set_index("Nível")["S/N médio (dB)"]
+
+        # ----- formato 2: índice = níveis, coluna = S/N médio -----
+        elif "S/N médio" in fac_df.columns:
+            serie = fac_df["S/N médio"]
+            serie.index = serie.index.astype(str)
+
         else:
             opt_levels[fac] = lvl_fallback
+            continue
+
+        serie = pd.to_numeric(serie, errors="coerce").dropna()
+
+        if serie.empty:
+            opt_levels[fac] = lvl_fallback
+        else:
+            opt_levels[fac] = str(serie.idxmax())
 
     return opt_levels
 
@@ -1549,13 +1699,24 @@ def render_ensaio_confirmacao(
 
     if modo_conf == "Ponto ótimo (recomendado)":
         opt_levels = _opt_levels_from_tables(factor_cols, df_plan, per_factor_tables)
-        st.markdown("Usando os níveis ótimos encontrados na análise anterior:")
-        lista_niveis = []
+    
         for fac in factor_cols:
             nivel_esc = str(opt_levels.get(fac, str(sorted(df_plan[fac].astype(str).unique())[0])))
             conf_levels[fac] = nivel_esc
-            lista_niveis.append(f"- **{fac}**: nível `{nivel_esc}`")
-        st.markdown("\n".join(lista_niveis))
+    
+        st.markdown("⭐ **Configuração ótima dos fatores**")
+    
+        chips_html = "<div style='display:flex; flex-wrap:wrap; gap:14px;'>"
+        for fac in factor_cols:
+            chips_html += f"""
+                <div style="padding:12px 20px; background:#ecfdf5;
+                            border-radius:999px; font-size:20px; color:#064e3b;
+                            box-shadow:0 4px 14px rgba(0,0,0,0.14);">
+                    <span style="font-weight:600; color:#065f46; font-size:18px;">{fac}:</span>
+                    <span style="font-weight:700; font-size:24px;">{conf_levels.get(fac, "-")}</span>
+                </div>"""
+        chips_html += "</div>"
+        st.markdown(chips_html, unsafe_allow_html=True)
 
     else:
         st.markdown("Selecione manualmente os níveis utilizados no ensaio de confirmação:")
@@ -1979,6 +2140,8 @@ def section_results():
     })
 
     st.dataframe(sn_table, use_container_width=True, hide_index=True)
+
+    
 
     # Médias globais
     Y_bar = float(np.nanmean(mean_y))
@@ -2972,8 +3135,37 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
     def tabelas_observado_predito():
-        st.subheader("📊 Observado × Predito")
+        st.subheader("📊 Valor observado versus valor estimado")
 
+        # ================================================================
+        # 📘 Explicação do modelo de predição (Taguchi)
+        # ================================================================
+        if st.toggle("🔴🔴🔴 Como é calculado o valor predito? (clique para ver) 🔴🔴🔴", 
+                     value=False, 
+                     key="show_pred_predicao"):
+        
+            st.markdown(r"""
+            O valor **predito** para cada ensaio é obtido pelo **modelo aditivo de efeitos principais**, 
+            cujo resultado é dado por:
+            """)
+        
+            st.latex(r"\hat{Y}_\ell \;=\; \bar{Y} \;+\; \sum_{j=1}^{K} \text{Efeito}(j,\ell)")
+        
+            st.markdown(
+                r"""
+                **em que,**  
+                • $\hat{Y}_\ell$ é a resposta predita para a combinação de níveis $\ell$;  
+                • $\bar{Y}$ é a média global da resposta;  
+                • $\text{Efeito}(j,\ell)$ é o efeito principal do fator $j$ no nível selecionado;  
+                • $K$ é o número total de fatores.
+                """
+            )
+        
+        st.markdown("---")
+        st.markdown(f"🔍 **Valores observados e preditos — {var_label}**")
+        
+        
+        
         Y = df_join["_Ymean"].values
         SN = df_join["_SN"].values
 
@@ -2997,10 +3189,10 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             predSN.append(somaSN - (len(factor_cols_local) - 1) * SN_bar)
 
         df_pred = pd.DataFrame({
-            "Y_obs": Y,
-            "Y_pred": predY,
-            "SN_obs": SN,
-            "SN_pred": predSN
+            f"{var_label} observado": Y,
+            f"{var_label} predito": predY,
+            "S/N observado (dB)": SN,
+            "S/N predito (dB)": predSN
         })
 
         st.dataframe(df_pred.round(3))
@@ -3146,24 +3338,27 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
     def anova_taguchi():
         """
         Aba ANOVA – Análise de Variância do Planejamento Experimental (Taguchi).
-        Implementação será feita posteriormente.
         """
         st.subheader("📊 ANOVA sobre a razão S/N")
-
+    
         st.caption(
             "Esta ANOVA é baseada na razão S/N por ensaio, usando apenas efeitos principais. "
             "Ela decompõe a variação total de S/N em parcelas atribuídas a cada fator e ao erro."
         )
-
-        if st.toggle("🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴", value=False, key="show_anova_help"):
+    
+        if st.toggle(
+            "🔴🔴🔴 O que é esta ANOVA? (clique para ver) 🔴🔴🔴",
+            value=False,
+            key="show_anova_help"
+        ):
             st.markdown(r"""
             A ANOVA (Análise de Variância) aqui considera a **razão S/N de cada ensaio** como resposta
             e decompõe a soma de quadrados total em:
-
+    
             - **Soma de Quadrados do Fator** ($SQ_k$): quanto cada fator $k$ contribui para a variação de S/N;  
             - **Soma de Quadrados de Erro** $(SQ_{\textrm{erro}})$: variação não explicada pelos efeitos principais;  
             - **Soma de Quadrados Total** $(SQ_{\textrm{total}})$: variação total da S/N em torno da média global.
-
+    
             Como o planejamento é ortogonal, a contribuição de cada fator é calculada por:
             """)
             st.latex(r"""
@@ -3174,118 +3369,100 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             em que $\overline{\mathrm{S/N}}_{k,\ell}$ é a média de S/N no nível $\ell$ do fator $k$
             e $n_{k,\ell}$ é o número de ensaios nesse nível.
             """)
-
+    
             st.markdown(r"""
             A **soma de quadrados total** é dada por:
-            """)    
-            st.latex(r"""
-            SQ_{\text{total}} = \sum_{i=1}^{N} \left(\mathrm{S/N}_i -\overline{\mathrm{S/N}}_{\text{global}}\right)^2
-            """)
-            
-            st.markdown(r"""
-            e a **soma de quadrados do erro** é obtida por diferença:
-            """)    
-            st.latex(r"""
-                SQ_{\text{erro}}
-                =
-                SQ_{\text{total}}
-                \;-\;
-                \sum_k SQ_k
-            """)
-            
-                
-            st.markdown(r"""
-                ### 📐 Termos usados na tabela ANOVA
-                A tabela exibida pelo aplicativo contém as seguintes colunas: 
-                - **GL (graus de liberdade)**  
-                  Para um fator com $L$ níveis: $$GL = L - 1$$  
-                  Para o erro:  $$GL_{\text{erro}} = GL_{\text{total}} - \sum_k GL_k$$
-
-               - **SQ (Soma de quadrados)**  Quantidade de variação explicada por cada fonte.  
-
-               - **QM (Quadrado Médio)**  É a variância média explicada pela fonte:  
-                  $$QM_k = \dfrac{SQ_k}{GL_k}\ \ $$   e   $$\ \ QM_{\text{erro}} = \dfrac{SQ_{\text{erro}}}{GL_{\text{erro}}}$$  
-
-               - **F (estatística F de Fisher)**  Mede o quanto a variância explicada pelo fator excede a variância residual:  $$F_k = \dfrac{QM_k}{QM_{\text{erro}}}$$  
-
-               - **p-valor**  Probabilidade de observar um valor de $F_k$ tão grande assumindo hipótese nula:   $$p_k = \mathbb{P}\left[F_{GL_k,\,GL_{\text{erro}}} \ge F_k\right]$$  
-                  Fatores com $p_k < 0{,}05$ são considerados **estatisticamente significativos**.
-
-               - **Contribuição (%)**  Mede a importância relativa do fator na variação total:  
             """)
             st.latex(r"""
-                \text{Contribuição}_k(\%) \;=\;
-                100 \cdot \frac{SQ_k}{SQ_{\text{total}}}
+            SQ_{\textrm{total}} \;=\; \sum_{i=1}^{N}
+            \bigl(\mathrm{S/N}_i - \overline{\mathrm{S/N}}_{\text{global}}\bigr)^2
             """)
-
-
+    
             st.markdown(r"""
-                ---
-                
-                ### ⚠️ Quando não existe $SQ_{\textrm{erro}}$?
-                
-                Em matrizes como **L9 com 4 fatores**, os fatores consomem todos os GL:
-                
-                $$GL_{\text{erro}} = 0$$
-                
-                Nesse caso **não é possível calcular**:
-                - $QM_{\text{erro}}$  
-                - $F$  
-                - p-valores  
-                
-                A ANOVA mostra apenas **SQ** e **GL**, sem testes estatísticos.
-            """) 
-
-            st.markdown(r"""
-                ### 🔁 Pooling (Agrupamento no Erro)
-                Quando $GL_{\text{erro}} = 0$, a ANOVA torna-se estatisticamente indeterminada, pois não é possível calcular $QM_{\text{erro}}$. Para contornar esse problema em planejamentos ortogonais saturados (como L9 com 4 fatores), aplica-se o procedimento conhecido como **pooling**.
-                
-                Nesse procedimento, fatores cuja contribuição é considerada pequena são tratados como fontes de variação não sistemática. Assim, seus termos são incorporados ao termo de erro, redefinindo:
-                
-                $$
-                SQ_{\text{erro}}^{(\text{pool})}
-                = SQ_{\text{erro}}^{(\text{bruto})}
-                + \sum_{k \in \mathcal{P}} SQ_k,
-                $$
-                
-                $$
-                GL_{\text{erro}}^{(\text{pool})}
-                = GL_{\text{erro}}^{(\text{bruto})}
-                + \sum_{k \in \mathcal{P}} GL_k,
-                $$
-                
-                onde $\mathcal{P}$ denota o conjunto de fatores agrupados no erro.
-                
-                Essa redefinição produz um termo de erro com
-                $GL_{\text{erro}}^{(\text{pool})} > 0$, permitindo calcular:
-                
-                $$
-                QM_{\text{erro}}^{(\text{pool})}
-                = \frac{SQ_{\text{erro}}^{(\text{pool})}}
-                {GL_{\text{erro}}^{(\text{pool})}},
-                $$
-                
-                e, consequentemente, as estatísticas $F_k$ e respectivos p-valores.
+            e a soma de quadrados do erro é obtida por:
             """)
-
-
-            st.markdown(r"""
-                ### 🤖 Estratégia de pooling usada pelo aplicativo
-                    
-                Quando $GL_{\text{erro}} \le 0$:
-                    
-                1. O app ordena os fatores pela **contribuição (%)**.  
-                2. Fatores com contribuição $<5\%$ são candidatos naturais.  
-                3. Se nenhum tiver $<5\%$, o app escolhe o **menor** $SQ$.  
-                4. O app nunca agrupa **todos** os fatores.  
-                5. Uma vez criado o erro com $GL > 0$, calcula $F$, p-valor e contribuições.  
-                6. O app exibe quais fatores foram agrupados.
-                    
-                Assim, a ANOVA fica estatisticamente válida com interpretação completa.
+            st.latex(r"""
+            SQ_{\textrm{erro}} \;=\; SQ_{\textrm{total}} - \sum_k SQ_k
             """)
-
+    
+            st.markdown(r"""
+            Os quadrados médios são:
+            """)
+            st.latex(r"""
+            QM_k = \frac{SQ_k}{GL_k},
+            \qquad
+            QM_{\textrm{erro}} = \frac{SQ_{\textrm{erro}}}{GL_{\textrm{erro}}}
+            """)
+    
+            st.markdown(r"""
+            e a estatística de teste é:
+            """)
+            st.latex(r"""
+            F_k = \frac{QM_k}{QM_{\textrm{erro}}}
+            """)
+    
+            st.markdown(r"""
+            Quando o planejamento é **saturado**, pode ocorrer $GL_{\textrm{erro}} \le 0$.
+            Nesses casos, o aplicativo usa **pooling** automático para formar um termo de erro.
+            """)
+    
+            st.markdown(r"""
+            ### 🤖 Estratégia de pooling usada pelo aplicativo
+    
+            Quando $GL_{\text{erro}} \le 0$:
+    
+            1. O app ordena os fatores pela **contribuição (%)**.  
+            2. Fatores com contribuição $<5\%$ são candidatos naturais.  
+            3. Se nenhum tiver $<5\%$, o app escolhe o **menor** $SQ$.  
+            4. O app nunca agrupa **todos** os fatores.  
+            5. Uma vez criado o erro com $GL > 0$, calcula $F$, p-valor e contribuições.  
+            6. O app exibe quais fatores foram agrupados.
+            """)
+    
         st.markdown("---")
-
+    
+        calcular_anova = st.toggle(
+            "📌 **Calcular e exibir tabela ANOVA**",
+            value=False,
+            key="show_anova_table"
+        )
+    
+        if not calcular_anova:
+            st.info("Ative a opção acima para calcular a ANOVA.")
+            return
+    
+        df_effects = df_join.copy()
+        sn_col = "_SN"
+    
+        with st.spinner("Calculando ANOVA..."):
+            anova_df, meta = compute_anova_sn_cached(
+                df_effects=df_effects,
+                factor_cols_tuple=tuple(factor_cols),
+                sn_col=sn_col
+            )
+    
+        if anova_df is None:
+            st.error("❌ " + meta.get("error", "Erro ao calcular ANOVA."))
+            return
+    
+        st.markdown("🔍 **Tabela ANOVA (razão S/N como resposta)**")
+        st.dataframe(anova_df, use_container_width=True, hide_index=True)
+    
+        st.caption(
+            "ℹ️ **Significativo (5%)**: "
+            "`Sim` = p < 0,05; "
+            "`Não` = p ≥ 0,05; "
+            "`n/d` = não determinado (sem GL de erro ou sem cálculo de p-valor)."
+        )
+    
+        if meta.get("used_pooling", False):
+            pooled_names = meta.get("pooled_names", [])
+            if pooled_names:
+                st.warning(
+                    "⚠️ **Pooling automático aplicado** para criar termo de erro. "
+                    "Fatores agrupados no erro: "
+                    + ", ".join(map(str, pooled_names))
+                )
 
 
 
@@ -3870,28 +4047,47 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         # Coeficientes da Regressão
         # =========================
         st.markdown("### Coeficientes da Regressão")
+
+        calcular_reg = st.toggle(
+            "📌 **Calcular e exibir resultados da regressão múltipla**",
+            value=False,
+            key="show_regressao_table"
+        )
         
-        # y (resposta): valores do problema (ex.: média por ensaio)
-        y = np.asarray(mean_y, dtype=float).reshape(-1, 1)
-        n = y.shape[0]
+        if not calcular_reg:
+            st.info("Ative a opção acima para calcular a regressão.")
+            return
         
-        # X: fatores (dummies para categóricos), com intercepto
-        X_raw = df_plan[factor_cols].copy()
-        X_num = X_raw.apply(pd.to_numeric, errors="ignore")
-        X_dum = pd.get_dummies(X_num, drop_first=True, dtype=float)
-        X_dum.insert(0, "Constante", 1.0)
+        with st.spinner("Calculando regressão..."):
+            reg = compute_regressao_multipla_cached(
+                df_plan=df_plan,
+                factor_cols_tuple=tuple(factor_cols),
+                mean_y=tuple(np.asarray(mean_y, dtype=float).tolist()),
+                has_scipy=HAS_SCIPY
+            )
         
-        X = X_dum.to_numpy(dtype=float)
-        terms = list(X_dum.columns)
-        
-        p1 = X.shape[1]        # (p+1)
-        p = p1 - 1
-        df_res = n - p1
-        
-        # MQO
-        XtX = X.T @ X
-        XtX_inv = np.linalg.pinv(XtX)  # robusto
-        beta_hat = XtX_inv @ (X.T @ y)
+        y = reg["y"]
+        n = reg["n"]
+        X_dum = reg["X_dum"]
+        X = reg["X"]
+        terms = reg["terms"]
+        p1 = reg["p1"]
+        p = reg["p"]
+        df_res = reg["df_res"]
+        XtX_inv = reg["XtX_inv"]
+        beta_hat = reg["beta_hat"]
+        beta = reg["beta"]
+        y_hat = reg["y_hat"]
+        eps_hat = reg["eps_hat"]
+        SQ_res = reg["SQ_res"]
+        sigma2_hat = reg["sigma2_hat"]
+        Var_beta = reg["Var_beta"]
+        se = reg["se"]
+        t_vals = reg["t_vals"]
+        p_vals = reg["p_vals"]
+        ci_low = reg["ci_low"]
+        ci_high = reg["ci_high"]
+        vif = reg["vif"]
         beta = beta_hat.ravel()    
         y_hat = X @ beta_hat
         eps_hat = y - y_hat
@@ -4634,56 +4830,66 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     </style>
     """, unsafe_allow_html=True)
 
-
-
-    tab_efeitos, tab_inter, tab_3d, tab_pred, tab_conf, tab_anova, tab_reg = st.tabs(
-        ["Efeitos e Delta", 
-         "Interações (2D)", 
-         "Interações (3D)", 
-         "Predições",
-         "Ensaios de confirmação", 
-         "ANOVA", 
-         "Regressão múltipla"]
+    
+    aba = st.radio(
+        "**RESULTADOS**",
+        [
+            "📊 Efeitos e Delta",
+            "🔗 Interações (2D)",
+            "🧊 Interações (3D)",
+            "🔮 Predições",
+            "🧪 Ensaios de confirmação",
+            "📈 ANOVA",
+            "📉 Regressão múltipla",
+        ],
+        horizontal=True,
+        key="aba_resultados"
     )
-
-    with tab_efeitos:
+    
+    # Estes objetos são usados por várias seções
+    factor_cols = [c for c in df_plan.columns if c != "Experimento"]
+    
+    per_factor = {}
+    for f in factor_cols:
+        df_tmp = df_join.copy()
+        df_tmp[f] = df_tmp[f].astype(str)
+        g_sn = df_tmp.groupby(f)["_SN"].mean()
+        per_factor[f] = g_sn.to_frame("S/N médio")
+    
+    if aba == "📊 Efeitos e Delta":
         per_factor, grand_mean, factor_cols = mostrar_efeitos_e_graficos(
             lang, main_x_tmpl, main_y_default
         )
         mostrar_regra_delta()
-
-    with tab_inter:
-
-        # 2) Gráficos de interação entre fatores (S/N)
+    
+    elif aba == "🔗 Interações (2D)":
         mostrar_interacoes(lang, inter_x_tmpl, inter_y_default)
-
-
-    with tab_3d:
+    
+    elif aba == "🧊 Interações (3D)":
         mostrar_superficie_3d()
-
-    with tab_pred:
+    
+    elif aba == "🔮 Predições":
         tabelas_observado_predito()
         predicao_usuario()
-
-    with tab_conf:
+    
+    elif aba == "🧪 Ensaios de confirmação":
         render_ensaio_confirmacao(
-        factor_cols=factor_cols,
-        df_plan=df_plan,
-        var_label=var_label,
-        mean_y=mean_y,
-        df_effects=df_join,   # aqui é o df com _SN por ensaio
-        sn_col="_SN",
-        per_factor_tables=per_factor,
-        sn_tipo=sn_tipo,
-        nominal_target=None,
-    )
-
-    with tab_anova:
+            factor_cols=factor_cols,
+            df_plan=df_plan,
+            var_label=var_label,
+            mean_y=mean_y,
+            df_effects=df_join,
+            sn_col="_SN",
+            per_factor_tables=per_factor,
+            sn_tipo=sn_tipo,
+            nominal_target=None,
+        )
+    
+    elif aba == "📈 ANOVA":
         anova_taguchi()
-
-    with tab_reg:
+    
+    elif aba == "📉 Regressão múltipla":
         regressao_multipla(per_factor_tables=per_factor)
-
 
 
 def main():
