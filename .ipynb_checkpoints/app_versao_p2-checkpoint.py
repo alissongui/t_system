@@ -41,7 +41,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão 26.prv08
+                Versão v02.2026
             </p>
         </div>
         """,
@@ -848,7 +848,7 @@ def ponto_otimo_regressao(
     alpha=0.05,
 ):
     st.markdown("---")
-    st.subheader("⭐ Ponto ótimo do Taguchi + Predição (Regressão) com IC")
+    st.subheader("⭐ Ponto ótimo do Taguchi + Predição via Regressão com Intervalo de Confiança (IC)")
 
     Y_hat_taguchi = st.session_state.get("Y_hat_taguchi_opt", np.nan)
     
@@ -859,14 +859,16 @@ def ponto_otimo_regressao(
         per_factor_tables=per_factor_tables,
     )
 
-    st.markdown("🔍 **Ponto ótimo (Taguchi)**")
-    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>"
+    st.markdown("⭐ **Ponto ótimo (Taguchi)**")
+    
+    chips_html = "<div style='display:flex; flex-wrap:wrap; gap:14px;'>"
     for fac in factor_cols:
         chips_html += f"""
-            <div style="padding:6px 12px; background:#ecfdf5;
-                        border-radius:999px; font-size:13px; color:#064e3b;
-                        box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                <span style="font-weight:600; color:#065f46;">{fac}:</span> {opt_levels.get(fac, "-")}
+            <div style="padding:12px 20px; background:#ecfdf5;
+                        border-radius:999px; font-size:20px; color:#064e3b;
+                        box-shadow:0 4px 14px rgba(0,0,0,0.14);">
+                <span style="font-weight:600; color:#065f46; font-size:18px;">{fac}:</span>
+                <span style="font-weight:700; font-size:24px;">{opt_levels.get(fac, "-")}</span>
             </div>"""
     chips_html += "</div>"
     st.markdown(chips_html, unsafe_allow_html=True)
