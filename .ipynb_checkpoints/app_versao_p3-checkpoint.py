@@ -15,6 +15,36 @@ from PIL import Image
 from scipy.stats import shapiro
 
 
+st.markdown("""
+<style>
+/* Título do radio */
+div[data-testid="stRadio"] > label {
+    font-size: 26px !important;
+    font-weight: 800 !important;
+    color: #064e3b !important;
+}
+
+/* Opções do radio horizontal */
+div[data-testid="stRadio"] div[role="radiogroup"] label {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: #064e3b !important;
+}
+
+/* Texto interno das opções */
+div[data-testid="stRadio"] div[role="radiogroup"] label p {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+    color: #064e3b !important;
+}
+
+/* Espaçamento entre opções */
+div[data-testid="stRadio"] div[role="radiogroup"] {
+    gap: 14px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # (se tiver scipy / pyDOE, ficam aqui também)
 
@@ -41,7 +71,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão v03.2026
+                Versão v1.2026
             </p>
         </div>
         """,
@@ -4830,9 +4860,10 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     </style>
     """, unsafe_allow_html=True)
 
+    st.markdown("## 📌 RESULTADOS")
     
     aba = st.radio(
-        "**RESULTADOS**",
+        "",
         [
             "📊 Efeitos e Delta",
             "🔗 Interações (2D)",
@@ -4841,6 +4872,7 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             "🧪 Ensaios de confirmação",
             "📈 ANOVA",
             "📉 Regressão múltipla",
+            "👨‍💻 Créditos"   # 👈 NOVA ABA
         ],
         horizontal=True,
         key="aba_resultados"
@@ -4890,6 +4922,78 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     
     elif aba == "📉 Regressão múltipla":
         regressao_multipla(per_factor_tables=per_factor)
+
+    elif aba == "👨‍💻 Créditos":
+    
+        st.markdown("## 👨‍💻 Créditos do Sistema")
+    
+        st.markdown("---")
+    
+        # 📌 Nome do sistema
+        st.markdown("### 🧠 Sistema")
+        st.markdown("**Taguchi System — Análise Estatística e Otimização de Processos**")
+    
+        st.markdown("---")
+    
+        # 👨‍🏫 Autor principal
+        st.markdown("### 👨‍🏫 Autores")
+        st.markdown("""
+        **Prof. Dr. Antonio Alisson Pessoa Guimarães**  
+        Instituto de Engenharias e Desenvolvimento Sustentável (IEDS)  
+        Universidade da Integração Internacional da Lusofonia Afro-Brasileira (UNILAB)  
+        📧 alisson@unilab.edu.br  
+        
+        **Profa. Dra. Artemis Pessoa Guimarães**  
+        Instituto de Engenharias e Desenvolvimento Sustentável (IEDS)  
+        Universidade da Integração Internacional da Lusofonia Afro-Brasileira (UNILAB)  
+        📧 artemis@unilab.edu.br  
+        
+        **Profa. Dra. Rita Karolinny Chaves de Lima**  
+        Instituto de Engenharias e Desenvolvimento Sustentável (IEDS)  
+        Universidade da Integração Internacional da Lusofonia Afro-Brasileira (UNILAB)  
+        📧 karolinny@unilab.edu.br  
+        """)
+    
+        st.markdown("---")
+    
+        # 💻 Desenvolvimento
+        st.markdown("### 💻 Desenvolvimento")
+        st.markdown("""
+        **Prof. Dr. Antonio Alisson Pessoa Guimarães**<br>
+        Desenvolvimento do sistema e  modelagem estatística.<br>
+        📧 alisson@unilab.edu.br <br><br>
+        
+        **Eng. de Computação Ivina Lorena Oliveira Moura** <br>
+        Desenvolvimento do sistema.<br> 
+        📧 ivinalorena@aluno.unilab.edu.br 
+        """, unsafe_allow_html=True)
+    
+        st.markdown("---")
+    
+        # 📊 Tecnologias
+        st.markdown("### ⚙️ Tecnologias utilizadas")
+        st.markdown("""
+        - Python  
+        - Streamlit  
+        - NumPy / Pandas  
+        - SciPy  
+        - Plotly  
+        """)
+    
+        st.markdown("---")
+    
+        # 📜 Registro
+        st.markdown("### 📜 Registro de Software")
+        st.markdown("""
+        Sistema em processo de registro junto ao **INPI**  
+        (Instituto Nacional da Propriedade Industrial).
+        """)
+    
+        st.markdown("---")
+    
+        # 🧾 Versão
+        st.markdown("### 🔖 Versão")
+        st.markdown("Versão 1.0 — 2026")        
 
 
 def main():
