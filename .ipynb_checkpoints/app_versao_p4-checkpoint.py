@@ -126,13 +126,14 @@ else:
 # ============================
 def built_in_catalog():
     return {
-        "L4(2^3)"     : {"cols2": 3,  "cols3": 0,  "n": 4},
-        "L8(2^7)"     : {"cols2": 7,  "cols3": 0,  "n": 8},
-        "L9(3^4)"     : {"cols2": 0,  "cols3": 4,  "n": 9},
-        "L12(2^11)"   : {"cols2": 11, "cols3": 0,  "n": 12},
-        "L16(2^15)"   : {"cols2": 15, "cols3": 0,  "n": 16},
-        "L18(2^1 3^7)": {"cols2": 1,  "cols3": 7,  "n": 18},
-        "L27(3^13)"   : {"cols2": 0,  "cols3": 13, "n": 27},
+        "L4(2^3)"     : {"cols2": 3,  "cols3": 0,  "cols4": 0, "n": 4},
+        "L8(2^7)"     : {"cols2": 7,  "cols3": 0,  "cols4": 0, "n": 8},
+        "L9(3^4)"     : {"cols2": 0,  "cols3": 4,  "cols4": 0, "n": 9},
+        "L12(2^11)"   : {"cols2": 11, "cols3": 0,  "cols4": 0, "n": 12},
+        "L16(2^15)"   : {"cols2": 15, "cols3": 0,  "cols4": 0, "n": 16},
+        "L16(4^5)"    : {"cols2": 0,  "cols3": 0,  "cols4": 5, "n": 16},
+        "L18(2^1 3^7)": {"cols2": 1,  "cols3": 7,  "cols4": 0, "n": 18},
+        "L27(3^13)"   : {"cols2": 0,  "cols3": 13, "cols4": 0, "n": 27},
     }
 
 
@@ -250,6 +251,26 @@ def oa_from_name(name: str) -> np.ndarray:
             [2,3,1,2,3,1,2,2,3,1,1,2,3],
         ], dtype=int)
         return arr27 - 1
+
+    if name == "L16(4^5)":
+        return np.array([
+            [0,0,0,0,0],
+            [0,1,1,1,1],
+            [0,2,2,2,2],
+            [0,3,3,3,3],
+            [1,0,1,2,3],
+            [1,1,0,3,2],
+            [1,2,3,0,1],
+            [1,3,2,1,0],
+            [2,0,2,3,1],
+            [2,1,3,2,0],
+            [2,2,0,1,3],
+            [2,3,1,0,2],
+            [3,0,3,1,2],
+            [3,1,2,0,3],
+            [3,2,1,3,0],
+            [3,3,0,2,1],
+        ], dtype=int)
 
     # se nada casou:
     raise RuntimeError(f"OA '{name}' não disponível.")
@@ -374,14 +395,23 @@ def section_factors_and_oa():
                     continue
 
                 if mesmo_numero_niveis:
-                    if niveis_unicos[0] == 2 and specs['cols2'] >= num_fatores:
+                    if niveis_unicos[0] == 2 and specs.get('cols2', 0) >= num_fatores:
                         matrizes_candidatas.append((nome, specs))
-                    elif niveis_unicos[0] == 3 and specs['cols3'] >= num_fatores:
+                    elif niveis_unicos[0] == 3 and specs.get('cols3', 0) >= num_fatores:
                         matrizes_candidatas.append((nome, specs))
+                    elif niveis_unicos[0] == 4 and specs.get('cols4', 0) >= num_fatores:
+                        matrizes_candidatas.append((nome, specs))
+                
                 else:
                     f2 = sum(1 for n in niveis_por_fator if n == 2)
                     f3 = sum(1 for n in niveis_por_fator if n == 3)
-                    if specs['cols2'] >= f2 and specs['cols3'] >= f3:
+                    f4 = sum(1 for n in niveis_por_fator if n == 4)  # 🔥 NOVO
+                
+                    if (
+                        specs.get('cols2', 0) >= f2 and
+                        specs.get('cols3', 0) >= f3 and
+                        specs.get('cols4', 0) >= f4
+                    ):
                         matrizes_candidatas.append((nome, specs))
 
             matrizes_candidatas.sort(key=lambda x: x[1]['n'])
