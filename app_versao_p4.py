@@ -810,28 +810,50 @@ def compute_regressao_multipla_cached(df_plan, factor_cols_tuple, mean_y, has_sc
 
 def _build_X_row_from_levels(levels: dict, factor_cols: list, X_dum_cols: list):
     """
-    levels: {"A": "1", "B": "2", ...} com valores como strings
-    X_dum_cols: colunas do X_dum do ajuste (inclui 'Constante' + dummies)
+    Monta uma linha X_new compatível com as colunas usadas no ajuste da regressão.
+
+    Funciona tanto para:
+    1) regressão com fatores numéricos diretos:
+       Constante, MR, Biocatalyst, Temperature, Time
+
+    quanto para:
+    2) regressão com dummies:
+       Constante, Fator_nível, ...
     """
-    # cria DF com 1 linha
-    row_df = pd.DataFrame([{f: str(levels[f]) for f in factor_cols}])
 
-    # dummies iguais às do treino (drop_first=True)
-    row_dum = pd.get_dummies(row_df, drop_first=True, dtype=float)
+    row = {}
 
-    # garante colunas esperadas (sem a Constante ainda)
-    cols_no_const = [c for c in X_dum_cols if c != "Constante"]
-    for c in cols_no_const:
-        if c not in row_dum.columns:
-            row_dum[c] = 0.0
+    for col in X_dum_cols:
 
-    # remove colunas extras (se aparecerem)
-    row_dum = row_dum[cols_no_const]
+        if col == "Constante":
+            row[col] = 1.0
 
-    # insere Constante
-    row_dum.insert(0, "Constante", 1.0)
+        elif col in factor_cols:
+            # Caso em que o modelo usa diretamente o valor numérico do fator
+            try:
+                row[col] = float(levels.get(col, 0.0))
+            except Exception:
+                row[col] = 0.0
 
-    X_new = row_dum.to_numpy(dtype=float)  # shape (1, p1)
+        else:
+            # Caso em que o modelo usa dummies, por exemplo: Fator_2, Fator_3 etc.
+            value = 0.0
+
+            for fac in factor_cols:
+                prefix = f"{fac}_"
+
+                if col.startswith(prefix):
+                    nivel_dummy = col.replace(prefix, "", 1)
+
+                    if str(levels.get(fac, "")) == str(nivel_dummy):
+                        value = 1.0
+
+                    break
+
+            row[col] = value
+
+    X_new = pd.DataFrame([row], columns=X_dum_cols).to_numpy(dtype=float)
+
     return X_new
 
 def predicao_usuario_regressao(
@@ -4226,10 +4248,11 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
     "e dos intervalos de confiança."
 )
         st.caption(
-    "VIF (Variance Inflation Factor – Fator de Inflação da Variância) mede o grau de "
-    "multicolinearidade entre um preditor e os demais. Valores elevados de VIF indicam "
-    "coeficientes instáveis e aumento do erro-padrão das estimativas."
-    )
+            "VIF ajuda a verificar se existe repetição de informação entre os fatores. "
+            "Por exemplo, se dois fatores variam quase sempre juntos, o modelo pode ter dificuldade em separar o efeito de cada um. "
+            "Valores próximos de 1 indicam pouca ou nenhuma repetição de informação. "
+            "Valores altos indicam que os coeficientes da regressão podem ficar menos confiáveis."
+        )
 
                 # -----------------------------
         # Download — Coeficientes
@@ -4358,6 +4381,35 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             )
         
         st.dataframe(df_summary_fmt, use_container_width=True, hide_index=True)
+        st.caption(
+            "S é o erro típico do modelo: indica, em média, o tamanho esperado dos erros de predição "
+            "na mesma unidade da variável de interesse. Quanto menor, melhor."
+        )
+        
+        st.caption(
+            "R² indica a porcentagem da variação da resposta explicada pelo modelo. "
+            "Quanto mais próximo de 100%, melhor o ajuste aos dados observados."
+        )
+        
+        st.caption(
+            "R² (aj) é uma versão ajustada do R² que considera o número de fatores no modelo. "
+            "Ele evita que o modelo pareça melhor apenas por ter muitos termos."
+        )
+        
+        st.caption(
+            "PRESS mede o erro de predição por validação leave-one-out: o modelo é ajustado deixando um ensaio de fora "
+            "e tenta prever esse ensaio. Quanto menor o PRESS, melhor a capacidade preditiva."
+        )
+        
+        st.caption(
+            "R² (pred) indica a capacidade do modelo de prever novos dados. "
+            "Valores muito menores que o R² podem indicar que o modelo ajusta bem os dados atuais, mas não generaliza bem."
+        )
+        
+        st.caption(
+            "AICc e BIC são critérios para comparar modelos. Em geral, valores menores indicam modelos preferíveis. "
+            "Eles penalizam modelos muito complexos, ajudando a evitar excesso de ajuste."
+        )
         # -----------------------------
         # Download — Sumário do Modelo
         # -----------------------------
@@ -4415,10 +4467,11 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         st.dataframe(df_show, use_container_width=True, hide_index=True)
         
         st.caption(
-            "Resíduo = observado − ajustado. "
-            "Resíduo padronizado usa S (RMSE). "
-            "Resíduo studentizado ajusta também pela alavancagem (hᵢᵢ)."
+            "Resíduo = valor observado − valor predito pelo modelo. "
+            "Quanto mais próximo de zero, melhor foi a predição naquele ensaio."
         )
+
+
 
         # -----------------------------
         # Download — Tabela de resíduos
@@ -4797,20 +4850,40 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         
         # --- Complemento gráfico (QQ-plot) ---
         # Como o QQ-plot é visual, usamos uma heurística leve para comentar “caudas”:
+# --- Complemento gráfico (QQ-plot) ---
         if len(resid_1d) >= 8:
             q1, q99 = np.quantile(resid_1d, [0.01, 0.99])
             q25, q75 = np.quantile(resid_1d, [0.25, 0.75])
             iqr = q75 - q25
         
-            # regra simples: caudas “pesadas” se extremos são muito grandes vs IQR
             tail_score = (abs(q1) + abs(q99)) / (iqr + 1e-12)
         
-            if tail_score <= 6:
-                bul_res.append("O QQ-plot sugere boa aderência à Normal, sem desvios fortes nas caudas.")
+            if p_shapiro < alpha:
+                if tail_score <= 6:
+                    bul_res.append(
+                        "Visualmente, o QQ-plot não indica desvios muito fortes nas caudas; "
+                        "porém, o teste de Shapiro–Wilk apontou evidência estatística contra a normalidade. "
+                        "Assim, recomenda-se interpretar os testes e intervalos da regressão com cautela."
+                    )
+                else:
+                    bul_res.append(
+                        "O QQ-plot sugere possíveis desvios nas caudas, em concordância com o teste de Shapiro–Wilk, "
+                        "que rejeitou a hipótese de normalidade dos resíduos."
+                    )
             else:
-                bul_res.append("O QQ-plot sugere possíveis desvios nas caudas (valores extremos mais pronunciados).")
+                if tail_score <= 6:
+                    bul_res.append(
+                        "O QQ-plot sugere aderência razoável à distribuição Normal, sem desvios fortes nas caudas."
+                    )
+                else:
+                    bul_res.append(
+                        "Embora o teste de Shapiro–Wilk não rejeite a normalidade, o QQ-plot sugere possíveis desvios visuais nas caudas. "
+                        "Recomenda-se avaliar o gráfico com atenção."
+                    )
         else:
-            bul_res.append("O QQ-plot foi gerado; para amostras pequenas, priorize a interpretação visual.")
+            bul_res.append(
+                "O QQ-plot foi gerado; para amostras pequenas, a interpretação visual deve ser feita com cautela."
+            )
         
         # Exibição
         for r in bul_res:
