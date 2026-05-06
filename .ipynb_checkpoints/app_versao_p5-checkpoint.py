@@ -68,7 +68,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão v1.2026
+                Versão v2.2026
             </p>
         </div>
         """,
@@ -1974,6 +1974,42 @@ def render_ensaio_confirmacao(
 
 
 # =========================
+# Helper: bloco de referências bibliográficas
+# =========================
+def _render_refs(refs: list[tuple[str, str]]):
+    """
+    Renderiza um bloco de referências bibliográficas estilizado.
+    refs = lista de (citação, url_ou_isbn)  — url pode ser string vazia.
+    """
+    items_html = ""
+    for cite, link in refs:
+        if link:
+            items_html += (
+                f'<li style="margin-bottom:4px;">'
+                f'<a href="{link}" target="_blank" '
+                f'style="color:#065f46; text-decoration:underline;">{cite}</a></li>'
+            )
+        else:
+            items_html += f'<li style="margin-bottom:4px;">{cite}</li>'
+
+    st.markdown(
+        f"""
+        <div style="background:#f0fdf4; border-left:4px solid #16a34a;
+                    padding:10px 16px; margin:10px 0 4px; border-radius:4px;">
+            <span style="font-size:13px; font-weight:700; color:#14532d;">
+                📚 Referências
+            </span>
+            <ul style="margin:6px 0 0 0; padding-left:18px;
+                       font-size:13px; color:#14532d; line-height:1.6;">
+                {items_html}
+            </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =========================
 # Seção persistente de Resultados (compacta e modular)
 # =========================
 def section_results():
@@ -2251,6 +2287,15 @@ def section_results():
                   considerando todos os ensaios do experimento.
                 """
             )
+
+            _render_refs([
+                ("Ross, P. J. (1996). Taguchi Techniques for Quality Engineering. 2ª ed. McGraw-Hill.",
+                 ""),
+                ("Roy, R. K. (2010). A Primer on the Taguchi Method. 2ª ed. Society of Manufacturing Engineers.",
+                 ""),
+                ("Montgomery, D. C. (2017). Design and Analysis of Experiments. 9ª ed. Wiley.",
+                 ""),
+            ])
 
         st.markdown("---")
 
@@ -3121,6 +3166,15 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 - Para **significância estatística**, use **ANOVA sobre S/N** em complemento à regra delta.
 """)
 
+            _render_refs([
+                ("Ross, P. J. (1996). Taguchi Techniques for Quality Engineering. 2ª ed. McGraw-Hill.",
+                 ""),
+                ("Roy, R. K. (2010). A Primer on the Taguchi Method. 2ª ed. Society of Manufacturing Engineers.",
+                 ""),
+                ("Taguchi, G., Chowdhury, S., Wu, Y. (2005). Taguchi's Quality Engineering Handbook. Wiley.",
+                 ""),
+            ])
+
         st.markdown("---")
         st.markdown("🔍 Tabela de cálculo da regra delta por fator")
 
@@ -3194,7 +3248,16 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 • $K$ é o número total de fatores.
                 """
             )
-        
+
+            _render_refs([
+                ("Ross, P. J. (1996). Taguchi Techniques for Quality Engineering. 2ª ed. McGraw-Hill.",
+                 ""),
+                ("Roy, R. K. (2010). A Primer on the Taguchi Method. 2ª ed. Society of Manufacturing Engineers.",
+                 ""),
+                ("Montgomery, D. C. (2017). Design and Analysis of Experiments. 9ª ed. Wiley.",
+                 ""),
+            ])
+
         st.markdown("---")
         st.markdown(f"🔍 **Valores observados e preditos — {var_label}**")
         
@@ -3449,22 +3512,23 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
             5. Uma vez criado o erro com $GL > 0$, calcula $F$, p-valor e contribuições.  
             6. O app exibe quais fatores foram agrupados.
             """)
+
+            _render_refs([
+                ("Montgomery, D. C. (2017). Design and Analysis of Experiments. 9ª ed. Wiley.",
+                 ""),
+                ("Ross, P. J. (1996). Taguchi Techniques for Quality Engineering. 2ª ed. McGraw-Hill.",
+                 ""),
+                ("Roy, R. K. (2010). A Primer on the Taguchi Method. 2ª ed. Society of Manufacturing Engineers.",
+                 ""),
+                ("Neter, J. et al. (1996). Applied Linear Statistical Models. 4ª ed. McGraw-Hill.",
+                 ""),
+            ])
     
         st.markdown("---")
-    
-        calcular_anova = st.toggle(
-            "📌 **Calcular e exibir tabela ANOVA**",
-            value=False,
-            key="show_anova_table"
-        )
-    
-        if not calcular_anova:
-            st.info("Ative a opção acima para calcular a ANOVA.")
-            return
-    
+
         df_effects = df_join.copy()
         sn_col = "_SN"
-    
+
         with st.spinner("Calculando ANOVA..."):
             anova_df, meta = compute_anova_sn_cached(
                 df_effects=df_effects,
@@ -3497,67 +3561,6 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
 
 
-
-        # =========================================
-        # ANOVA (S/N como resposta) - aqui df_effects existe
-        # =========================================
-        df_effects = df_join.copy()
-        sn_col = "_SN"  # porque você criou df_join["_SN"] no calcular_sn()
-        
-        anova_df, meta = compute_anova_sn(df_effects=df_effects, factor_cols=factor_cols, sn_col=sn_col)
-        
-        if anova_df is None:
-            st.error("❌ " + meta.get("error", "Erro ao calcular ANOVA."))
-        else:
-            st.markdown("🔍 **Tabela ANOVA (razão S/N como resposta)**")
-            st.dataframe(anova_df, use_container_width=True, hide_index=True)
-    
-            st.caption(
-                "ℹ️ **Significativo (5%)**: "
-                "`Sim` = p < 0,05; "
-                "`Não` = p ≥ 0,05; "
-                "`n/d` = não determinado (sem GL de erro ou sem cálculo de p-valor)."
-            )
-            
-            # Mensagem de pooling (se aplicável)
-            if meta.get("used_pooling") and meta.get("pooled_names"):
-                pooled_str = ", ".join(meta["pooled_names"])
-                st.info(
-                    "🔁 **Pooling automático aplicado**: "
-                    "fatores com contribuição percentual reduzida foram incorporados ao termo de erro "
-                    f"para viabilizar a estimativa estatística. "
-                    f"Fator(es) agrupado(s): **{pooled_str}**."
-                )
-
-        
-            # (opcional) tabela dos fatores poolados com contribuição original
-            if meta.get("used_pooling") and meta.get("pooled_names"):
-                pooled_rows = []
-                for ent in meta.get("factor_entries", []):
-                    if ent["Fonte"] in meta["pooled_names"]:
-                        pooled_rows.append({
-                            "Fator poolado": ent["Fonte"],
-                            "SQ (original)": ent["SQ"],
-                            "Contribuição original (%)": ent["Contrib_orig"],
-                        })
-                if pooled_rows:
-                    pooled_df = pd.DataFrame(pooled_rows)
-                    for col in ["SQ (original)", "Contribuição original (%)"]:
-                        pooled_df[col] = pd.to_numeric(pooled_df[col], errors="coerce").round(4)
-                    st.markdown("📌 **Fatores agrupados no erro (pooling)**")
-                    st.dataframe(pooled_df, use_container_width=True, hide_index=True)
-            
-    
-            # Download CSV
-            buf_anova = io.StringIO()
-            anova_df.to_csv(buf_anova, index=False)
-            st.download_button(
-                "📥 Baixar tabela ANOVA (CSV)",
-                data=buf_anova.getvalue().encode("utf-8"),
-                file_name=f"anova_SN_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                key="dl_anova_sn",
-            )
 
             st.markdown("---")
             # =========================
@@ -3662,6 +3665,99 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
                 for b in bullets:
                     st.markdown(f"- {b}")
 
+                # ---------
+                # Comentários interpretativos contextuais
+                # ---------
+                st.markdown("---")
+                st.markdown("#### 🧠 Interpretação dos resultados")
+
+                interp = []
+
+                # Determina situações para adaptar o comentário
+                has_sig   = len(sig) > 0  if col_p is not None else False
+                has_ns    = len(ns)  > 0  if col_p is not None else False
+                has_nd    = len(nd)  > 0  if col_p is not None else False
+                has_pool  = bool(meta.get("used_pooling") and meta.get("pooled_names"))
+
+                # Avisa sobre a fragilidade quando há pooling
+                if has_pool:
+                    interp.append(
+                        "⚠️ **Atenção: pooling foi necessário para estimar o erro.** "
+                        "Isso ocorre porque o planejamento não tem graus de liberdade de erro suficientes. "
+                        "Nessa condição, o termo de erro é formado por um ou mais fatores de menor contribuição, "
+                        "o que torna os p-valores calculados **estimativas frágeis** — dependem fortemente "
+                        "de quanto o fator poolado representa ruído puro. "
+                        "Interprete os p-valores com cautela."
+                    )
+
+                # Poder estatístico
+                n_runs = len(df_effects)
+                if n_runs < 20:
+                    interp.append(
+                        f"📉 **Poder estatístico reduzido.** "
+                        f"O experimento possui apenas {n_runs} ensaios. "
+                        "Com poucos ensaios — situação típica em planejamentos Taguchi — "
+                        "o teste F tem baixa capacidade de detectar efeitos reais. "
+                        "Um fator pode ter efeito genuíno e ainda assim resultar em **p > 0,05** "
+                        "simplesmente porque o experimento não dispõe de réplicas suficientes "
+                        "para separar sinal de ruído com confiança."
+                    )
+
+                # Comentário sobre fatores não significativos
+                if has_ns and not has_sig:
+                    interp.append(
+                        "🔍 **Nenhum fator foi declarado significativo ao nível de 5%.** "
+                        "Isso **não significa** que os fatores são irrelevantes. "
+                        "Pode refletir apenas que o experimento não tem poder suficiente "
+                        "para detectar os efeitos com a precisão exigida pelo teste formal."
+                    )
+                elif has_ns and has_sig:
+                    interp.append(
+                        "🔍 **Alguns fatores não atingiram significância formal (p ≥ 0,05).** "
+                        "Antes de descartá-los, verifique sua contribuição percentual e o Delta S/N — "
+                        "um fator com contribuição relevante não deve ser ignorado apenas pelo p-valor, "
+                        "especialmente quando há pooling envolvido."
+                    )
+
+                # Regra prática da contribuição
+                if col_contrib is not None and dfF["contrib_num"].notna().any():
+                    altos = dfF[dfF["contrib_num"] >= 10].copy()
+                    if not altos.empty:
+                        nomes_altos = ", ".join(altos[col_fonte].astype(str).tolist())
+                        interp.append(
+                            f"📌 **Regra prática de Taguchi:** fatores com contribuição ≥ 10–15% "
+                            "raramente devem ser descartados, mesmo sem significância estatística formal, "
+                            "pois o teste F tem baixo poder nesse contexto. "
+                            f"Fator(es) acima desse limiar: **{nomes_altos}**."
+                        )
+
+                # p-valor n/d
+                if has_nd:
+                    interp.append(
+                        "❓ **p-valor não determinado (n/d):** ocorre quando não há graus de liberdade "
+                        "de erro disponíveis após o pooling. Nesse caso, o teste F não pode ser calculado. "
+                        "A contribuição percentual e o Delta S/N tornam-se os critérios principais de análise."
+                    )
+
+                # Orientação geral: triangular os três resultados
+                interp.append(
+                    "🔗 **Recomendação:** interprete sempre os três resultados em conjunto — "
+                    "**Contribuição (%) da ANOVA**, **Delta S/N (aba Efeitos)** e "
+                    "**Coeficientes da Regressão Múltipla**. "
+                    "Se um fator lidera nos três, seu efeito é robusto "
+                    "independentemente do p-valor da ANOVA."
+                )
+
+                for txt in interp:
+                    st.markdown(
+                        f"""<div style="background:#f0fdf4; border-left:4px solid #16a34a;
+                                        padding:10px 14px; margin:6px 0; border-radius:4px;
+                                        color:#14532d; font-size:15px; line-height:1.55;">
+                            {txt}
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
         
         if not HAS_SCIPY:
             st.info(
@@ -3672,9 +3768,20 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
 
         
         st.markdown("---")
-    
 
-    
+        st.info(
+            "💡 **A ANOVA não realiza estimação de valores.** \n\n"
+            "Ela decompõe e testa a significância dos efeitos, mas não produz uma equação preditiva. "
+            "Matematicamente, o modelo aditivo subjacente à ANOVA é equivalente ao modelo de efeitos principais do método Taguchi:\n\n"
+            r"$$\hat{Y} = \bar{Y} + \sum_{k}\,(\bar{Y}_{k,\ell_k} - \bar{Y})$$"
+            "\n\nPara **estimar valores** em novas combinações de fatores, utilize:\n\n"
+            "- **Aba _Efeitos e Delta_ → seção _Predição_**: estimação pelo modelo aditivo de Taguchi (simples e interpretável);\n"
+            "- **Aba _Regressão Múltipla_**: estimação via MQO, com intervalo de confiança, diagnóstico de resíduos e métricas de ajuste."
+        )
+
+        st.markdown("---")
+
+
     def regressao_multipla(per_factor_tables):
         st.subheader("📉 Regressão múltipla")
  
@@ -4072,6 +4179,18 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
             e são utilizados principalmente para a **comparação entre modelos concorrentes**.
             Em ambos os casos, **valores menores indicam modelos preferíveis**.
             """)
+
+            _render_refs([
+                ("Montgomery, D. C., Peck, E. A., Vining, G. G. (2021). Introduction to Linear Regression Analysis. 6ª ed. Wiley.",
+                 ""),
+                ("Draper, N. R., Smith, H. (1998). Applied Regression Analysis. 3ª ed. Wiley.",
+                 ""),
+                ("Neter, J. et al. (1996). Applied Linear Statistical Models. 4ª ed. McGraw-Hill.",
+                 ""),
+                ("Montgomery, D. C. (2017). Design and Analysis of Experiments. 9ª ed. Wiley.",
+                 ""),
+            ])
+
         st.markdown("---")
 
         # =========================
@@ -4079,16 +4198,6 @@ com inflacionamento dos erros-padrão e redução da confiabilidade dos testes d
         # =========================
         st.markdown("### Coeficientes da Regressão")
 
-        calcular_reg = st.toggle(
-            "📌 **Calcular e exibir resultados da regressão múltipla**",
-            value=False,
-            key="show_regressao_table"
-        )
-        
-        if not calcular_reg:
-            st.info("Ative a opção acima para calcular a regressão.")
-            return
-        
         with st.spinner("Calculando regressão..."):
             reg = compute_regressao_multipla_cached(
                 df_plan=df_plan,

@@ -68,7 +68,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão v1.2026
+                Versão v2.2026
             </p>
         </div>
         """,
