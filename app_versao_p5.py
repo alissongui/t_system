@@ -68,7 +68,7 @@ with col2:
                 Planejamento e Análise Experimental Taguchi
             </h3>
             <p style="font-size: 14px; margin: 0; line-height: 0; color: #555; letter-spacing: 0.5px;">
-                Versão v2.2026
+                Versão v1.2026
             </p>
         </div>
         """,
@@ -355,6 +355,96 @@ def full_factorial_runs(levels_by_factor: list[int]) -> int:
 # ---------------------------------------------
 def section_factors_and_oa():
     with st.container():
+
+        # ── Tabela de referência de Arranjos Ortogonais ──
+        with st.expander("📋 Tabela de referência — Arranjos Ortogonais de Taguchi"):
+            st.markdown("""
+<style>
+table.oa-tbl { width:100%; border-collapse:collapse; font-size:15px; table-layout:fixed; }
+table.oa-tbl th {
+  background:#d1fae5; color:#064e3b;
+  font-weight:700; font-size:15px; padding:10px 10px; text-align:center;
+  border-bottom:2px solid #6ee7b7;
+}
+table.oa-tbl th.left { text-align:left; }
+table.oa-tbl td { padding:8px 10px; text-align:center; border-bottom:0.5px solid #d1fae5; font-size:15px; }
+table.oa-tbl td.name { text-align:left; font-weight:600; }
+table.oa-tbl td.dash { color:#9ca3af; }
+table.oa-tbl tbody tr.gsep td { border-top:2px solid #6ee7b7 !important; }
+.oa-src { font-size:13px; color:#6b7280; padding:10px 0 2px; }
+.bx { display:inline-block; font-size:13px; font-weight:700; padding:3px 8px; border-radius:6px; }
+.b2 { background:#E6F1FB; color:#0C447C; }
+.b3 { background:#EAF3DE; color:#27500A; }
+.b4 { background:#FAEEDA; color:#633806; }
+.b5 { background:#FBEAF0; color:#72243E; }
+</style>
+
+<table class="oa-tbl">
+  <thead>
+    <tr>
+      <th class="left" style="width:18%;">Arranjo</th>
+      <th style="width:13%;">Linhas (n)</th>
+      <th style="width:14%;">Máx. fatores</th>
+      <th style="width:14%;"><span class="bx b2">2 níveis</span></th>
+      <th style="width:14%;"><span class="bx b3">3 níveis</span></th>
+      <th style="width:14%;"><span class="bx b4">4 níveis</span></th>
+      <th style="width:13%;"><span class="bx b5">5 níveis</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr style="background:#ffffff;"><td class="name">L₄</td>  <td>4</td>  <td>3</td>  <td>3</td>  <td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₈</td>  <td>8</td>  <td>7</td>  <td>7</td>  <td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L₉</td>  <td>9</td>  <td>4</td>  <td class="dash">—</td><td>4</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;" class="gsep"><td class="name">L₁₂</td><td>12</td><td>11</td><td>11</td><td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L₁₆</td> <td>16</td> <td>15</td> <td>15</td> <td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L'₁₆</td><td>16</td> <td>5</td>  <td class="dash">—</td><td class="dash">—</td><td>5</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L₁₈</td> <td>18</td> <td>8</td>  <td>1</td>  <td>7</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;" class="gsep"><td class="name">L₂₅</td><td>25</td><td>6</td><td class="dash">—</td><td class="dash">—</td><td class="dash">—</td><td>6</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L₂₇</td> <td>27</td> <td>13</td> <td class="dash">—</td><td>13</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₃₂</td> <td>32</td> <td>31</td> <td>31</td> <td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L'₃₂</td><td>32</td> <td>10</td> <td>1</td>  <td class="dash">—</td><td>9</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₃₆</td> <td>36</td> <td>23</td> <td>11</td> <td>12</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;" class="gsep"><td class="name">L'₃₆</td><td>36</td><td>16</td><td>3</td><td>13</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₅₀</td> <td>50</td> <td>12</td> <td>1</td>  <td class="dash">—</td><td class="dash">—</td><td>11</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L₅₄</td> <td>54</td> <td>26</td> <td>1</td>  <td>25</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₆₄</td> <td>64</td> <td>63</td> <td>63</td> <td class="dash">—</td><td class="dash">—</td><td class="dash">—</td></tr>
+    <tr style="background:#ffffff;"><td class="name">L'₆₄</td><td>64</td> <td>21</td> <td class="dash">—</td><td class="dash">—</td><td>21</td><td class="dash">—</td></tr>
+    <tr style="background:#f0fdf4;"><td class="name">L₈₁</td> <td>81</td> <td>40</td> <td class="dash">—</td><td>40</td><td class="dash">—</td><td class="dash">—</td></tr>
+  </tbody>
+</table>
+<p class="oa-src"><strong>Fonte:</strong> PHADKE, M. S. <em>Quality Engineering Using Robust Design.</em> Englewood Cliffs: Prentice Hall, 1989. p. 152.</p>
+""", unsafe_allow_html=True)
+
+        with st.expander("📐 Notação dos Arranjos Ortogonais — como ler L₈(2⁷)?"):
+            st.markdown(r"""
+A estrutura geral da notação é:
+
+$$L_n(l^m)$$
+
+em que cada símbolo tem o seguinte significado:
+
+| Símbolo | Significado | Exemplo em $L_8(2^7)$ |
+|---|---|---|
+| $L$ | Matriz Ortogonal (*Latin Square* generalizado) | $L$ |
+| $n$ (subscrito) | Número de ensaios (corridas experimentais) | $8$ ensaios |
+| $l$ (base do expoente) | Número de níveis de cada fator | $2$ níveis (ex: baixo/alto) |
+| $m$ (expoente) | Número máximo de fatores avaliáveis | até $7$ fatores |
+
+---
+
+**Para matrizes mistas** — com fatores de níveis diferentes — a notação é estendida. Por exemplo:
+
+$$L_{18}(2^1 \times 3^7)$$
+
+indica 18 ensaios, com **1 fator de 2 níveis** e **até 7 fatores de 3 níveis**.
+
+---
+
+**Fonte:** MINITAB. *Notation for Taguchi Designs*. Minitab Support, 2024. Disponível em: https://support.minitab.com/pt-br/minitab/help-and-how-to/statistical-modeling/doe/supporting-topics/taguchi-designs/notation-for-taguchi-designs/
+            """)
+
+        st.markdown("---")
+
         upl = st.file_uploader(
             "**Carregar arquivo de fatores**",
             type=["xlsx"],
@@ -3293,6 +3383,132 @@ Em linha gerais, o valor de $\Delta$ fornece uma medida comparativa de influênc
         })
 
         st.dataframe(df_pred.round(3))
+
+        # ================================================================
+        # Análise de erro de estimação
+        # ================================================================
+        st.markdown("---")
+        st.markdown("#### 📐 Análise de erro de estimação — modelo aditivo")
+
+        Y_arr    = np.array(Y,      dtype=float)
+        predY_arr = np.array(predY, dtype=float)
+        SN_arr   = np.array(SN,     dtype=float)
+        predSN_arr = np.array(predSN, dtype=float)
+
+        # --- Y: RMSE e MAPE ---
+        rmse_y = float(np.sqrt(np.mean((predY_arr - Y_arr) ** 2)))
+
+        valid_mape = Y_arr != 0
+        if valid_mape.any():
+            mape_y = float(
+                100 * np.mean(np.abs((predY_arr[valid_mape] - Y_arr[valid_mape])
+                                     / Y_arr[valid_mape]))
+            )
+            mape_y_str = f"{mape_y:.2f} %"
+        else:
+            mape_y_str = "n/d (valores observados = 0)"
+
+        # --- S/N: RMSE e MAE ---
+        rmse_sn = float(np.sqrt(np.mean((predSN_arr - SN_arr) ** 2)))
+        mae_sn  = float(np.mean(np.abs(predSN_arr - SN_arr)))
+
+        col_y, col_sn = st.columns(2)
+
+        with col_y:
+            st.markdown(f"**{var_label}**")
+            st.metric("RMSE", f"{rmse_y:.4f}")
+            st.metric("MAPE", mape_y_str)
+
+        with col_sn:
+            st.markdown("**S/N (dB)**")
+            st.metric("RMSE", f"{rmse_sn:.4f} dB")
+            st.metric("MAE",  f"{mae_sn:.4f} dB")
+
+        st.caption(
+            "**RMSE** (Root Mean Square Error): erro quadrático médio — penaliza desvios grandes. "
+            "**MAPE** (Mean Absolute Percentage Error): erro percentual médio em relação ao valor observado — "
+            "usado para Y pois os valores são positivos. "
+            "**MAE** (Mean Absolute Error): erro absoluto médio em dB — "
+            "usado para S/N pois valores negativos invalidam o MAPE."
+        )
+
+        st.markdown(
+            """
+            <table style="width:100%; border-collapse:collapse; font-size:14px;
+                          color:#14532d; margin:10px 0;">
+              <thead>
+                <tr style="background:#bbf7d0;">
+                  <th style="padding:7px 12px; text-align:left; border:1px solid #86efac;">Faixa</th>
+                  <th style="padding:7px 12px; text-align:center; border:1px solid #86efac;">Variável de interesse — MAPE</th>
+                  <th style="padding:7px 12px; text-align:center; border:1px solid #86efac;">S/N — MAE</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background:#f0fdf4;">
+                  <td style="padding:6px 12px; border:1px solid #86efac;">✅ Excelente</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">≤ 5 %</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">≤ 1 dB</td>
+                </tr>
+                <tr style="background:#fefce8;">
+                  <td style="padding:6px 12px; border:1px solid #86efac;">🟡 Aceitável</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">5 – 15 %</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">1 – 3 dB</td>
+                </tr>
+                <tr style="background:#fff1f2;">
+                  <td style="padding:6px 12px; border:1px solid #86efac;">🔴 Fraco</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">> 15 %</td>
+                  <td style="padding:6px 12px; text-align:center; border:1px solid #86efac;">> 3 dB</td>
+                </tr>
+              </tbody>
+            </table>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Interpretação automática
+        interp_err = []
+        if mape_y_str != "n/d (valores observados = 0)":
+            if mape_y <= 5:
+                interp_err.append(
+                    f"✅ **MAPE de {mape_y:.2f}%** para {var_label}: excelente ajuste do modelo aditivo — "
+                    "o modelo explica bem a variação da resposta."
+                )
+            elif mape_y <= 15:
+                interp_err.append(
+                    f"🟡 **MAPE de {mape_y:.2f}%** para {var_label}: ajuste aceitável — "
+                    "pode haver efeitos de interação não capturados pelo modelo aditivo."
+                )
+            else:
+                interp_err.append(
+                    f"🔴 **MAPE de {mape_y:.2f}%** para {var_label}: ajuste fraco — "
+                    "considere investigar interações entre fatores ou não-linearidades."
+                )
+
+        if mae_sn <= 1.0:
+            interp_err.append(
+                f"✅ **MAE de {mae_sn:.4f} dB** para S/N: desvio inferior a 1 dB — "
+                "modelo aditivo representa bem a razão sinal-ruído."
+            )
+        elif mae_sn <= 3.0:
+            interp_err.append(
+                f"🟡 **MAE de {mae_sn:.4f} dB** para S/N: desvio moderado — "
+                "possível influência de interações entre fatores."
+            )
+        else:
+            interp_err.append(
+                f"🔴 **MAE de {mae_sn:.4f} dB** para S/N: desvio elevado — "
+                "o modelo aditivo pode não ser suficiente; verifique gráficos de interação."
+            )
+
+        for txt in interp_err:
+            st.markdown(
+                f"""<div style="background:#f0fdf4; border-left:4px solid #16a34a;
+                                padding:10px 14px; margin:6px 0; border-radius:4px;
+                                color:#14532d; font-size:15px; line-height:1.55;">
+                    {txt}
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
     def predicao_usuario():
         st.markdown("---")
